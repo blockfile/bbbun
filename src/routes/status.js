@@ -7,6 +7,7 @@ const repo = require('../db/repository');
 const scheduler = require('../jobs/scheduler');
 const { provider, wallet, walletAddress } = require('../evm/provider');
 const { getUnclaimedEth } = require('../services/metrics');
+const { getFeeRecipientCheck } = require('../jobs/cycle');
 const { getEthPriceUsd, toUsd } = require('../evm/price');
 const { sumAirdrops } = require('../services/format');
 
@@ -39,12 +40,21 @@ router.get('/status', async (req, res, next) => {
       }
     }
 
+    // Recorded by the last cycle from the launch record it already read — no
+    // chain call here. null until a cycle has run.
+    const feeCheck = getFeeRecipientCheck();
+
     res.json({
       dryRun: config.dryRun,
       tokenSymbol: TOKEN_SYMBOL,
       rewardSymbol: config.rewardSymbol,
       chainId: config.chainId,
       ethPriceUsd: price,
+
+      // false = the launch pays creator fees somewhere else and the cycle
+      // cannot claim. The single most important operational flag in this API.
+      feeRecipientOk: feeCheck ? feeCheck.ok : null,
+      creatorFeeRecipient: feeCheck ? feeCheck.actual : null,
 
       // top cards
       cards: {

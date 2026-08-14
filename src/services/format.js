@@ -5,8 +5,9 @@ const config = require('../config');
 
 const TOKEN_SYMBOL = config.tokenSymbol;
 
-// The cycle emits these step types: sweep, claim, buy, airdrop (+ error). Map a
-// stored step to the activity-row shape the dashboard renders.
+// The cycle emits these step types: sweep, claim, buy, airdrop, reward (the
+// below-MIN_REWARD_ETH skip) and error. Unmapped names fall through to the raw
+// step name. Map a stored step to the activity-row shape the dashboard renders.
 function toActivityRow(s, price) {
   const d = s.detail || {};
   let type;

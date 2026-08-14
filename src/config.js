@@ -75,6 +75,11 @@ const config = {
 
   rewardBuyPct,
   devPct,
+  // Floor for the reward leg. Below this the buy+airdrop is skipped cleanly for
+  // the cycle — the dust stays in the wallet as native ETH — instead of being
+  // attempted with an amount too small to be worth a swap's gas. The default is
+  // the 1e-6 ETH boundary where a JS Number stops stringifying in plain decimal.
+  minRewardEth: Math.max(0, num(process.env.MIN_REWARD_ETH, 0.000001)),
   slippagePct: num(process.env.SLIPPAGE_PCT, 5),
   gasReserveEth: num(process.env.GAS_RESERVE_ETH, 0.005),
   deadAddress: lowerOr(process.env.DEAD_ADDRESS, '0x000000000000000000000000000000000000dead'),

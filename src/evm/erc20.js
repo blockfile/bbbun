@@ -1,9 +1,16 @@
 'use strict';
 const { Contract } = require('ethers');
+const config = require('../config');
 const { provider, wallet } = require('./provider');
 const { ERC20_ABI } = require('./abi');
 
 const decimalsCache = new Map();
+
+// DRY_RUN must simulate EVERY chain call. A pons v2 launch mints 1e9 tokens at
+// 18 decimals, so that is the supply a dry run reasons about — without it, the
+// REWARD_CAP_PCT path is the one read that still needs a live RPC, and a dry
+// run against an unreachable node dies AFTER the simulated buy is recorded.
+const SIM_TOTAL_SUPPLY_RAW = 1_000_000_000n * 10n ** 18n;
 
 function erc20(address, runner = provider) {
   return new Contract(address, ERC20_ABI, runner);
@@ -23,6 +30,7 @@ async function readTokenBalance(token, owner) {
 }
 
 async function getTokenSupplyRaw(token) {
+  if (config.dryRun) return SIM_TOTAL_SUPPLY_RAW;
   return erc20(token).totalSupply();
 }
 
@@ -31,4 +39,7 @@ function __setDecimalsCache(address, value) {
   decimalsCache.set(String(address).toLowerCase(), value);
 }
 
-module.exports = { erc20, getDecimals, readTokenBalance, getTokenSupplyRaw, __setDecimalsCache, wallet };
+module.exports = {
+  erc20, getDecimals, readTokenBalance, getTokenSupplyRaw,
+  SIM_TOTAL_SUPPLY_RAW, __setDecimalsCache, wallet,
+};

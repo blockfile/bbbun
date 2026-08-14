@@ -10,16 +10,37 @@
 //                  then its reward is split among members pro-rata by member balance.
 // Integer math throughout (BigInt). Leftover units are assigned by the
 // largest-remainder method so the amounts sum EXACTLY to totalRaw.
+
+const PPB = 1000000000n; // parts per billion
+const PPB_PER_PCT = 10000000; // 1% = 1e7 ppb
+
+/**
+ * capPct% of supplyRaw, in base units. Never returns 0 for a positive capPct:
+ * a cap finer than one base unit is the limit case where every holder is
+ * capped to the same value, i.e. an equal split — which is a real answer, and
+ * infinitely better than returning nothing at all.
+ */
+function capToRaw(capPct, supplyRaw) {
+  const ppb = BigInt(Math.round(capPct * PPB_PER_PCT));
+  if (ppb <= 0n) return 1n;
+  const raw = (BigInt(supplyRaw.toString()) * ppb) / PPB;
+  return raw > 0n ? raw : 1n;
+}
+
 function computeWeightedAllocations(holders, totalRaw, opts = {}) {
   const total = BigInt(totalRaw.toString());
   if (total <= 0n || !holders || holders.length === 0) return [];
 
   const { capPct = null, supplyRaw = null, clusters = [] } = opts;
 
-  // owner -> clusterId
+  // owner -> clusterId. Keyed LOWERCASE on both sides: holder addresses arrive
+  // EIP-55 checksummed from the explorer while CLUSTERS is hand-written, so a
+  // case-sensitive lookup would silently match nothing and turn the whole
+  // anti-sybil cap into a no-op. Members keep their original casing — the
+  // airdrop sends to them.
   const clusterOf = new Map();
   clusters.forEach((group, i) => {
-    for (const addr of group) clusterOf.set(addr, `c${i}`);
+    for (const addr of group) clusterOf.set(String(addr).toLowerCase(), `c${i}`);
   });
 
   // Group holders; sum cluster balance, keep members for the internal split.
@@ -27,7 +48,8 @@ function computeWeightedAllocations(holders, totalRaw, opts = {}) {
   for (const h of holders) {
     const bal = BigInt(h.balanceRaw.toString());
     if (bal <= 0n) continue;
-    const id = clusterOf.get(h.owner) || `solo:${h.owner}`;
+    const key = String(h.owner).toLowerCase();
+    const id = clusterOf.get(key) || `solo:${key}`;
     let g = groups.get(id);
     if (!g) { g = { balance: 0n, members: [] }; groups.set(id, g); }
     g.balance += bal;
@@ -35,8 +57,11 @@ function computeWeightedAllocations(holders, totalRaw, opts = {}) {
   }
   if (groups.size === 0) return [];
 
-  const capRaw =
-    capPct == null ? null : (BigInt(supplyRaw.toString()) * BigInt(Math.round(capPct * 100))) / 10000n;
+  // Cap in PARTS PER BILLION of supply, not hundredths of a percent. Scaling by
+  // 100 made every REWARD_CAP_PCT below 0.005 round to a zero cap, which clamps
+  // every weight to zero and silently drops the entire airdrop. 1e7 per percent
+  // keeps caps meaningful down to 0.0000001%.
+  const capRaw = capPct == null ? null : capToRaw(capPct, supplyRaw);
 
   // weight per group (balance, clamped to cap)
   let totalWeight = 0n;
@@ -96,4 +121,4 @@ function computeWeightedAllocations(holders, totalRaw, opts = {}) {
   return out;
 }
 
-module.exports = { computeWeightedAllocations };
+module.exports = { computeWeightedAllocations, capToRaw };

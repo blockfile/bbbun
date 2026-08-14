@@ -71,6 +71,13 @@ If it instead shows `⚠️ NOT this wallet`, stop — nothing downstream will w
 until the token's `creatorFeeRecipient` is fixed (or `WALLET_PRIVATE_KEY` is
 changed to match it).
 
+`check.js` is a manual preflight, so the running bot does not rely on you
+having remembered it: **every cycle re-checks the launch record it already
+reads** and logs a loud `creatorFeeRecipient MISMATCH` warning naming both
+addresses when they differ. It warns rather than throws — an operator may be
+mid-migration — and the result is published as `feeRecipientOk` on
+`/api/status`.
+
 The other launch-time lever worth knowing: `creatorTaxBps`, capped at 1000
 (10%), is an extra per-trade tax paid to the creator in full, on top of the
 protocol's normal fee split. Without it the bot's only income is the
@@ -127,9 +134,15 @@ every cycle.
 **Deploy `Disperse.sol` from the sibling `pons-launcher/contracts/` project
 and set `DISPERSE_ADDRESS` before your holder count grows.** With it set, each
 airdrop batch (`AIRDROP_BATCH_SIZE` recipients) becomes a single
-`disperseToken(token, recipients[], values[])` transaction. Note the reward
-token needs an `approve()` to the disperse contract first — the bot does not
-do this for you.
+`disperseToken(token, recipients[], values[])` transaction.
+
+**The reward token needs a one-off `approve()` to the disperse contract first —
+the bot does not do this for you, and does not check the allowance.** Without
+it every batch reverts and no ROBBIE reaches anyone. A cycle that bought ROBBIE
+and then delivered it to *nobody* is recorded as `failed` (not `complete`) with
+that cause named in its `error`, so `totals.failed` on `/api/status` is the
+number to watch. A cycle with no *eligible* holders is different, and stays
+`complete` with a note.
 
 ## Config
 
@@ -141,8 +154,10 @@ you start:
 | `WALLET_PRIVATE_KEY` | — | must be BABY ROBBIE's `creatorFeeRecipient` |
 | `TOKEN_ADDRESS` | — | BABY ROBBIE, filled in after launch |
 | `REWARD_BUY_PCT` | `80` | % of each claim used to buy ROBBIE + airdrop it (dev cut = the rest) |
+| `MIN_REWARD_ETH` | `0.000001` | reward legs smaller than this are skipped for the cycle, not attempted |
 | `MIN_HOLD` | `100000` | minimum BABY ROBBIE balance to qualify for the airdrop |
 | `REWARD_CAP_PCT` | `0` | per-wallet airdrop weight cap, % of supply (0 = pure pro-rata) |
+| `CLUSTERS` | `[]` | address groups capped as one holder (casing ignored) |
 | `TRIGGER_MODE` | `interval` | `interval` (every tick) or `accumulation` (by ETH threshold) |
 | `POLL_SCHEDULE` | `*/5 * * * *` | how often the scheduler ticks (every 5 minutes) |
 | `CLAIM_EVERY_ETH` | `0.005` | accumulation mode: fire once claimable ≥ this (ETH) |
@@ -160,19 +175,37 @@ npm test                   # unit + integration tests (in-memory MongoDB)
 
 ## Going live
 
+`cp .env.example .env` leaves `DRY_RUN=true`, and **`--confirm` does not
+override it**. While `DRY_RUN=true`, every mutating script prints
+`[DRY_RUN] simulating: …` and sends nothing — `--confirm` only gets you past
+the preview. Setting `DRY_RUN=false` is what arms the bot, so it is its own
+step below (step 6). Everything above it is a simulation; everything from it
+down spends real ETH.
+
 1. Launch BABY ROBBIE on pons v2 with `creatorFeeRecipient` = the bot wallet
    and `creatorTaxBps` = 50 or 100 (0.5% or 1%).
-2. Set `TOKEN_ADDRESS` in `.env`; run `node scripts/check.js` and confirm the
-   `feeRecip.` line shows ✓.
-3. Deploy `Disperse.sol` from `pons-launcher/contracts/` and set
-   `DISPERSE_ADDRESS` before your holder count grows.
+2. Set `WALLET_PRIVATE_KEY` and `TOKEN_ADDRESS` in `.env`, then run
+   `node scripts/check.js` and confirm the `feeRecip.` line shows ✓. It is
+   read-only, so it tells you the truth even with `DRY_RUN=true` still set.
+3. Deploy `Disperse.sol` from `pons-launcher/contracts/`, set
+   `DISPERSE_ADDRESS`, and send the one-off `approve()` of ROBBIE to that
+   contract — the bot does not do it for you, and without it every airdrop
+   batch reverts.
 4. Fund the wallet with native ETH for gas.
-5. Dust-test live, in order:
-   - `node scripts/sweep.js --confirm`
-   - `node scripts/claim.js --confirm`
-   - `node scripts/buy.js 0.001 --confirm`
-6. `node scripts/run-once.js --confirm`, read the printed cycle, then set
-   `DRY_RUN=false` and `npm start`.
+5. Rehearse the whole cycle in simulation: `node scripts/run-once.js --confirm`,
+   then read the printed cycle end to end. Still `DRY_RUN=true`, still nothing
+   sent — this is your last free look at the shape of a cycle.
+6. **Set `DRY_RUN=false` in `.env`.** Nothing below this line is a rehearsal.
+7. Dust-test live, in this order. Each now sends a REAL transaction, and each
+   pauses 3 seconds first so you can Ctrl+C:
+   - `node scripts/sweep.js --confirm` — moves pending fees into the escrow
+   - `node scripts/claim.js --confirm` — withdraws the escrow as native ETH
+   - `node scripts/buy.js 0.001 --confirm` — one small real buy
+   - `node scripts/run-once.js --confirm` — one real end-to-end cycle
+8. `npm start`. The scheduler now runs live cycles on `POLL_SCHEDULE`. Check
+   `/api/status`: after the first cycle `feeRecipientOk` must be `true`, and
+   `totals.failed` must stay at `0` — a cycle whose airdrop reached nobody is
+   recorded as `failed`, with the likely cause in its `error`.
 
 ## Scripts
 

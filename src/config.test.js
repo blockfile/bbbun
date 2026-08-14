@@ -31,6 +31,17 @@ test('accepts a fractional reward share without float drift', () => {
   assert.strictEqual(c.devPct, 19.9); // must not be 19.900000000000006
 });
 
+test('MIN_REWARD_ETH defaults to the 1e-6 parseEther boundary', () => {
+  const c = loadConfig({ DRY_RUN: 'true', MIN_REWARD_ETH: '' });
+  assert.strictEqual(c.minRewardEth, 0.000001);
+});
+
+test('MIN_REWARD_ETH is operator-settable and never negative', () => {
+  assert.strictEqual(loadConfig({ DRY_RUN: 'true', MIN_REWARD_ETH: '0.05' }).minRewardEth, 0.05);
+  assert.strictEqual(loadConfig({ DRY_RUN: 'true', MIN_REWARD_ETH: '0' }).minRewardEth, 0);
+  assert.strictEqual(loadConfig({ DRY_RUN: 'true', MIN_REWARD_ETH: '-1' }).minRewardEth, 0);
+});
+
 test('exposes no burn configuration at all', () => {
   const c = loadConfig({ DRY_RUN: 'true' });
   assert.strictEqual(c.burnPct, undefined);

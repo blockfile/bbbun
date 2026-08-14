@@ -14,6 +14,59 @@ const { quoteCurveOut, buyOnCurve } = require('./curve');
 
 const BUY_ATTEMPTS = 3;
 const BPS = 10000n;
+const WEI_DECIMALS = 18;
+
+/**
+ * Expand a JS Number to a PLAIN decimal string — never exponential notation.
+ *
+ * This exists because ETH amounts flow through this project as Numbers, and
+ * `String(n)` switches to exponential below 1e-6 ("5.6e-7"), which
+ * `parseEther` rejects outright ("invalid FixedNumber string value"). A claim
+ * of 7e-7 ETH — the creator's share of the 1% hook fee on one small swap — is
+ * a perfectly ordinary amount for this bot, so the conversion must survive it.
+ *
+ * `String(n)` (not `toFixed(18)`) is the source of the digits on purpose: it
+ * is the shortest round-trip representation, so 21.368470124 converts to
+ * exactly 21368470124000000000 wei. `(21.368470124).toFixed(18)` would instead
+ * expose the binary-float tail as "21.368470124000001675" and mint 1675 wei
+ * that the caller never had.
+ */
+function toPlainDecimalString(n) {
+  const s = String(n);
+  if (!/e/i.test(s)) return s;
+
+  const [mantissa, expPart] = s.split(/e/i);
+  const exp = Number(expPart);
+  const negative = mantissa.startsWith('-');
+  const [intPart, fracPart = ''] = (negative ? mantissa.slice(1) : mantissa).split('.');
+  const digits = intPart + fracPart;
+  const pointAt = intPart.length + exp; // where the decimal point lands in `digits`
+
+  let out;
+  if (pointAt <= 0) out = `0.${'0'.repeat(-pointAt)}${digits}`;
+  else if (pointAt >= digits.length) out = digits + '0'.repeat(pointAt - digits.length);
+  else out = `${digits.slice(0, pointAt)}.${digits.slice(pointAt)}`;
+
+  return (negative ? '-' : '') + out;
+}
+
+/**
+ * ETH (Number) -> wei (BigInt). Exponent-safe; see toPlainDecimalString.
+ * Digits finer than one wei are truncated, never rounded up, so a conversion
+ * can never spend more than the caller holds.
+ */
+function ethToWei(ethAmount) {
+  const n = Number(ethAmount);
+  if (!Number.isFinite(n)) throw new Error(`ethToWei: not a finite amount: ${ethAmount}`);
+  if (n < 0) throw new Error(`ethToWei: negative amount: ${ethAmount}`);
+
+  let decimal = toPlainDecimalString(n);
+  const dot = decimal.indexOf('.');
+  if (dot >= 0 && decimal.length - dot - 1 > WEI_DECIMALS) {
+    decimal = decimal.slice(0, dot + 1 + WEI_DECIMALS); // sub-wei digits are dust
+  }
+  return parseEther(decimal);
+}
 
 /** Lower a quoted output by the configured slippage tolerance. */
 function applySlippage(quoted, slippagePct) {
@@ -51,7 +104,10 @@ async function buyToken({ launch, token, ethAmount }) {
     };
   }
 
-  const amountIn = parseEther(String(ethAmount));
+  const amountIn = ethToWei(ethAmount);
+  if (amountIn <= 0n) {
+    throw new Error(`buy amount ${ethAmount} ETH rounds to zero wei — raise it above MIN_REWARD_ETH`);
+  }
   const decimals = await getDecimals(token);
   const venue = launch.graduated ? 'v4' : 'curve';
 
@@ -107,4 +163,4 @@ async function buyToken({ launch, token, ethAmount }) {
   throw lastErr;
 }
 
-module.exports = { buyToken, applySlippage };
+module.exports = { buyToken, applySlippage, ethToWei, toPlainDecimalString };
