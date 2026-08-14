@@ -13,6 +13,7 @@
     "sweep": "node scripts/sweep.js",
     "claim": "node scripts/claim.js",
     "buy": "node scripts/buy.js",
+    "approve-disperse": "node scripts/approve-disperse.js",
     "run-once": "node scripts/run-once.js"
   },
   "engines": { "node": ">=20" },
