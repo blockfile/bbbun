@@ -18,17 +18,24 @@ const state = {
  * escrow PLUS what a sweep would move into it. Reading the escrow alone
  * deadlocks — before the first sweep it is zero while the fees sit on the
  * curve or the hook, so the bot would never fire and never sweep.
+ * @param {object} deps Optional overrides for testing: { dryRun, tokenAddress, escrowBalanceEth, sweepableEth, getLaunch }
  */
-async function getClaimableEth() {
-  if (config.dryRun) return escrowBalanceEth();
-  if (!config.tokenAddress) return 0;
-  const launch = await getLaunch();
+async function getClaimableEth(deps = {}) {
+  const dryRun = deps.dryRun !== undefined ? deps.dryRun : config.dryRun;
+  const readEscrow = deps.escrowBalanceEth || escrowBalanceEth;
+  const readSweepable = deps.sweepableEth || sweepableEth;
+  const readLaunch = deps.getLaunch || getLaunch;
+  const token = deps.tokenAddress !== undefined ? deps.tokenAddress : config.tokenAddress;
+
+  if (dryRun) return readEscrow();
+  if (!token) return 0;
+  const launch = await readLaunch();
   state.lastPhase = launch.graduated ? 'v4' : 'curve';
-  const [inEscrow, pending] = await Promise.all([escrowBalanceEth(), sweepableEth(launch)]);
+  const [inEscrow, pending] = await Promise.all([readEscrow(), readSweepable(launch)]);
   return inEscrow + pending;
 }
 
-async function pollOnce(trigger) {
+async function pollOnce(trigger, deps = {}) {
   if (state.paused) return { ran: false, reason: 'paused' };
   if (state.isRunning) {
     console.log(`[scheduler] ${trigger} tick ignored — a cycle is already running`);
@@ -40,20 +47,25 @@ async function pollOnce(trigger) {
   // cycle and contend for the wallet nonce.
   state.isRunning = true;
   try {
-    if (config.dryRun) {
+    const dryRun = deps.dryRun !== undefined ? deps.dryRun : config.dryRun;
+    const triggerMode = deps.triggerMode !== undefined ? deps.triggerMode : config.triggerMode;
+    const claimEveryEth = deps.claimEveryEth !== undefined ? deps.claimEveryEth : config.claimEveryEth;
+    const cycle_fn = deps.runCycle || runCycle;
+
+    if (dryRun) {
       // Simulate fees arriving so cycles have something to work with.
       require('../evm/simvault').accrue(config.dryRunFeePerPoll);
     }
-    const claimable = await getClaimableEth();
+    const claimable = await getClaimableEth(deps);
     state.lastClaimable = claimable;
     if (!(claimable > 0)) return { ran: false, claimable, reason: 'nothing claimable' };
 
-    if (config.triggerMode === 'accumulation' && claimable < config.claimEveryEth) {
-      return { ran: false, claimable, reason: `below accumulation threshold (${claimable} < ${config.claimEveryEth} ETH)` };
+    if (triggerMode === 'accumulation' && claimable < claimEveryEth) {
+      return { ran: false, claimable, reason: `below accumulation threshold (${claimable} < ${claimEveryEth} ETH)` };
     }
 
     state.lastRunAt = new Date().toISOString();
-    const cycle = await runCycle();
+    const cycle = await cycle_fn();
     state.lastResult = { id: cycle.id, status: cycle.status };
     return { ran: true, claimable, cycle };
   } finally {
@@ -97,4 +109,16 @@ function getState() {
   };
 }
 
-module.exports = { start, pause, resume, triggerNow, pollOnce, getState, getClaimableEth };
+// Test helper — reset scheduler state to a clean slate
+function _resetState() {
+  state.task = null;
+  state.paused = false;
+  state.isRunning = false;
+  state.lastRunAt = null;
+  state.lastResult = null;
+  state.lastClaimable = null;
+  state.startedAt = null;
+  state.lastPhase = null;
+}
+
+module.exports = { start, pause, resume, triggerNow, pollOnce, getState, getClaimableEth, _resetState };
