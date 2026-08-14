@@ -1,6 +1,6 @@
 'use strict';
 
-// Airdrop a reward token (PONS) to weighted allocations [{owner, amountRaw}].
+// Airdrop a reward token to weighted allocations [{owner, amountRaw}].
 // Records every recipient (repo.addAirdrop) so partial failures are visible and
 // retriable. Three send paths:
 //   - DRY_RUN          → simulate the sends (no chain calls).
