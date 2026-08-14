@@ -1630,7 +1630,7 @@ Create `src/evm/exclude.test.js`:
 const test = require('node:test');
 const assert = require('node:assert');
 process.env.DRY_RUN = 'true';
-process.env.AIRDROP_EXCLUDE = '0x00000000000000000000000000000000000EXTRA'.toLowerCase().replace('extra', 'e0e0e0');
+process.env.AIRDROP_EXCLUDE = '0x1111111111111111111111111111111111111111';
 delete require.cache[require.resolve('../config')];
 
 const config = require('../config');
