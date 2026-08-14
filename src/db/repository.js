@@ -214,6 +214,39 @@ async function getAirdropTotals() {
   return byToken;
 }
 
+// A real on-chain transaction hash. DRY_RUN records airdrops with status 'ok'
+// and a fabricated `airdrop_ka9f2x` signature, so status alone cannot tell a
+// simulated payout from a real one.
+const REAL_TX_HASH = '^0x[0-9a-fA-F]{64}$';
+
+/**
+ * Totals for ONE reward token, counting only payouts that actually landed on
+ * chain. Separate from getAirdropTotals because that one deliberately includes
+ * simulated sends — the operator dashboard wants to see them while testing in
+ * DRY_RUN. Anything public-facing must not: counting a simulated payout as
+ * distributed supply inflates the headline number the site shows to visitors.
+ * @returns {Promise<{totalUi:number, sends:number, holders:number}>}
+ */
+async function getDistributedTotal(rewardToken) {
+  const db = getDb();
+  const [row] = await db
+    .collection('airdrops')
+    .aggregate([
+      { $match: { reward_token: rewardToken, status: 'ok', signature: { $regex: REAL_TX_HASH } } },
+      {
+        $group: {
+          _id: null,
+          sends: { $sum: 1 },
+          totalUi: { $sum: { $ifNull: ['$amount_ui', 0] } },
+          recipients: { $addToSet: '$recipient' },
+        },
+      },
+      { $project: { _id: 0, sends: 1, totalUi: 1, holders: { $size: '$recipients' } } },
+    ])
+    .toArray();
+  return row || { totalUi: 0, sends: 0, holders: 0 };
+}
+
 module.exports = {
   createCycle,
   finishCycle,
@@ -226,4 +259,5 @@ module.exports = {
   addAirdrop,
   getAirdrops,
   getAirdropTotals,
+  getDistributedTotal,
 };

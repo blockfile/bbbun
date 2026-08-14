@@ -15,6 +15,7 @@ const controlRoutes = require('./src/routes/control');
 const metricsRoutes = require('./src/routes/metrics');
 const streamRoutes = require('./src/routes/stream');
 const publicRoutes = require('./src/routes/public');
+const siteRoutes = require('./src/routes/frontend');
 
 const app = express();
 
@@ -47,6 +48,8 @@ app.get('/', (req, res) => {
       'GET  /summary',
       'GET  /accrual',
       'GET  /countdown',
+      'GET  /api/stats (babyrobbie.com)',
+      'GET  /api/rewards (babyrobbie.com)',
       'GET  /api/status',
       'GET  /api/unclaimed',
       'GET  /api/stream (SSE live push)',
@@ -60,6 +63,11 @@ app.get('/', (req, res) => {
     ],
   });
 });
+
+// The babyrobbie.com site's contract (GET /api/stats, /api/rewards). Mounted
+// first so its shapes are unambiguous — the other /api routers use different
+// path names, so order is not load-bearing, but the grouping documents intent.
+app.use('/api', siteRoutes);
 
 app.use('/api', statusRoutes);
 app.use('/api', cycleRoutes);
