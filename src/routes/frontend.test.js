@@ -70,3 +70,21 @@ test('a missing amount_ui becomes 0 rather than undefined', () => {
   // the key from the JSON entirely, which reads as a malformed row.
   assert.strictEqual(toRewardRow({ recipient: '0xabc' }).amount, 0);
 });
+
+test('the feed limit exceeds a single cycle of recipients', () => {
+  // A limit below one cycle's recipient count makes the ledger unable to show
+  // even one drop — a holder in the older part searches and finds nothing.
+  // Observed live: 134 recipients in one cycle against a limit of 100.
+  const { FEED_LIMIT } = require('./frontend');
+  assert.ok(FEED_LIMIT >= 1000, `FEED_LIMIT is ${FEED_LIMIT}; must clear a cycle with headroom`);
+});
+
+test('?limit= is clamped and falls back safely', () => {
+  const { parseLimit, FEED_LIMIT, FEED_LIMIT_MAX } = require('./frontend');
+  assert.strictEqual(parseLimit(undefined), FEED_LIMIT, 'no param -> default');
+  assert.strictEqual(parseLimit('abc'), FEED_LIMIT, 'garbage -> default');
+  assert.strictEqual(parseLimit('0'), FEED_LIMIT, 'zero -> default');
+  assert.strictEqual(parseLimit('-5'), FEED_LIMIT, 'negative -> default');
+  assert.strictEqual(parseLimit('250'), 250, 'in range -> honoured');
+  assert.strictEqual(parseLimit('999999'), FEED_LIMIT_MAX, 'oversized -> capped');
+});

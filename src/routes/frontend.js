@@ -19,9 +19,18 @@ const { nextRun } = require('../services/countdown');
 
 const router = express.Router();
 
-// How many payouts the feed returns. The site renders a scrolling ledger, so
-// this is a display window, not a full history — /api/airdrops paginates.
-const FEED_LIMIT = 100;
+// How many payouts the feed returns.
+//
+// This MUST comfortably exceed the recipients in one cycle, or the ledger
+// cannot show even a single drop: the site fetches once and paginates what it
+// gets, so a holder in the older part of the latest cycle searches their wallet
+// and finds nothing — indistinguishable, to them, from not being paid. That is
+// exactly what happened at the old value of 100 against 134 recipients.
+//
+// Sized for several cycles of headroom at the current holder count. A row is
+// ~150 bytes of JSON, so even the cap is a couple of MB, served from a 5s cache.
+const FEED_LIMIT = 1000;
+const FEED_LIMIT_MAX = 5000;
 
 // Tiny in-memory TTL cache, de-duping concurrent requests. Copied rather than
 // shared with routes/public.js on purpose: these two route files serve
@@ -97,22 +106,42 @@ router.get('/stats', async (req, res, next) => {
   }
 });
 
-const loadRewards = cached(5000, async () => {
-  const { items } = await repo.getAirdrops(FEED_LIMIT, 0, config.rewardToken);
+/** Clamp a caller-supplied ?limit= to something we are willing to serve. */
+function parseLimit(raw) {
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) return FEED_LIMIT;
+  return Math.min(n, FEED_LIMIT_MAX);
+}
 
-  return {
-    // The site asks the backend to own this clock so every viewer counts down
-    // to the same moment rather than to whenever their own tab loaded. Because
-    // we send it, the site ignores its own fallback cycle constant.
-    next_distribution_at: new Date(nextRun(config.pollSchedule, Date.now()).nextAirdropAt).toISOString(),
-    rewards: items.filter((r) => r.status === 'ok' && isRealTxHash(r.signature)).map(toRewardRow),
-  };
-});
+// One cache per distinct limit. Without keying on it, the first caller's limit
+// would be served to everyone for the whole TTL.
+const rewardsCaches = new Map();
+function rewardsLoader(limit) {
+  if (!rewardsCaches.has(limit)) {
+    rewardsCaches.set(
+      limit,
+      cached(5000, async () => {
+        const { items } = await repo.getAirdrops(limit, 0, config.rewardToken);
+        return {
+          // The site asks the backend to own this clock so every viewer counts
+          // down to the same moment rather than to whenever their own tab
+          // loaded. Because we send it, the site ignores its fallback constant.
+          next_distribution_at: new Date(
+            nextRun(config.pollSchedule, Date.now()).nextAirdropAt
+          ).toISOString(),
+          rewards: items.filter((r) => r.status === 'ok' && isRealTxHash(r.signature)).map(toRewardRow),
+        };
+      })
+    );
+  }
+  return rewardsCaches.get(limit);
+}
 
 // GET /api/rewards — the ROBBIE payout ledger, newest first, plus the clock.
+// ?limit= is optional; the site sends none and gets FEED_LIMIT.
 router.get('/rewards', async (req, res, next) => {
   try {
-    res.json(await loadRewards());
+    res.json(await rewardsLoader(parseLimit(req.query.limit))());
   } catch (err) {
     next(err);
   }
@@ -121,3 +150,6 @@ router.get('/rewards', async (req, res, next) => {
 module.exports = router;
 module.exports.isRealTxHash = isRealTxHash;
 module.exports.toRewardRow = toRewardRow;
+module.exports.parseLimit = parseLimit;
+module.exports.FEED_LIMIT = FEED_LIMIT;
+module.exports.FEED_LIMIT_MAX = FEED_LIMIT_MAX;
