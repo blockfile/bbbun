@@ -39,12 +39,12 @@ function loadWallet() {
 const { wallet, ephemeral: walletIsEphemeral } = loadWallet();
 
 const rewardBuyPct = num(process.env.REWARD_BUY_PCT, 80);
-const burnPct = num(process.env.BURN_PCT, 0.1);
-if (rewardBuyPct < 0 || burnPct < 0 || rewardBuyPct + burnPct > 100) {
-  throw new Error(`invalid split: REWARD_BUY_PCT(${rewardBuyPct}) + BURN_PCT(${burnPct}) must be within [0, 100]`);
+if (!(rewardBuyPct >= 0 && rewardBuyPct <= 100)) {
+  throw new Error(`invalid split: REWARD_BUY_PCT(${rewardBuyPct}) must be within [0, 100]`);
 }
-// toFixed(6) kills float drift: 100 - 80 - 0.1 is 19.900000000000006 in binary FP.
-const devPct = +(100 - rewardBuyPct - burnPct).toFixed(6);
+// The dev cut is defined as the remainder. toFixed(6) keeps a fractional reward
+// share from leaving float dust behind (100 - 80.1 is 19.900000000000006 in FP).
+const devPct = +(100 - rewardBuyPct).toFixed(6);
 
 const triggerMode = ['interval', 'accumulation'].includes(String(process.env.TRIGGER_MODE || 'interval').toLowerCase())
   ? String(process.env.TRIGGER_MODE || 'interval').toLowerCase() : 'interval';
@@ -74,11 +74,7 @@ const config = {
   rewardSymbol: process.env.REWARD_SYMBOL || 'ROBBIE',
 
   rewardBuyPct,
-  burnPct,
   devPct,
-  // 0.1% of a small claim is dust below gas cost. Below this the burn leg is
-  // skipped rather than attempted; it does NOT roll into the next cycle.
-  minBurnEth: num(process.env.MIN_BURN_ETH, 0.0001),
   slippagePct: num(process.env.SLIPPAGE_PCT, 5),
   gasReserveEth: num(process.env.GAS_RESERVE_ETH, 0.005),
   deadAddress: lowerOr(process.env.DEAD_ADDRESS, '0x000000000000000000000000000000000000dead'),

@@ -11,21 +11,30 @@ function loadConfig(env) {
   return require('./config');
 }
 
-test('defaults to the 80 / 0.1 / 19.9 split', () => {
-  const c = loadConfig({ DRY_RUN: 'true', REWARD_BUY_PCT: '', BURN_PCT: '' });
+test('defaults to the 80 / 20 split', () => {
+  const c = loadConfig({ DRY_RUN: 'true', REWARD_BUY_PCT: '' });
   assert.strictEqual(c.rewardBuyPct, 80);
-  assert.strictEqual(c.burnPct, 0.1);
+  assert.strictEqual(c.devPct, 20);
+});
+
+test('rejects a reward share above 100', () => {
+  assert.throws(() => loadConfig({ DRY_RUN: 'true', REWARD_BUY_PCT: '105' }), /invalid split/);
+});
+
+test('rejects a negative reward share', () => {
+  assert.throws(() => loadConfig({ DRY_RUN: 'true', REWARD_BUY_PCT: '-1' }), /invalid split/);
+});
+
+test('accepts a fractional reward share without float drift', () => {
+  const c = loadConfig({ DRY_RUN: 'true', REWARD_BUY_PCT: '80.1' });
+  assert.strictEqual(c.rewardBuyPct, 80.1);
   assert.strictEqual(c.devPct, 19.9); // must not be 19.900000000000006
 });
 
-test('rejects a split that exceeds 100', () => {
-  assert.throws(() => loadConfig({ DRY_RUN: 'true', REWARD_BUY_PCT: '95', BURN_PCT: '10' }), /invalid split/);
-});
-
-test('allows a fractional burn percentage', () => {
-  const c = loadConfig({ DRY_RUN: 'true', REWARD_BUY_PCT: '80', BURN_PCT: '0.5' });
-  assert.strictEqual(c.burnPct, 0.5);
-  assert.strictEqual(c.devPct, 19.5);
+test('exposes no burn configuration at all', () => {
+  const c = loadConfig({ DRY_RUN: 'true' });
+  assert.strictEqual(c.burnPct, undefined);
+  assert.strictEqual(c.minBurnEth, undefined);
 });
 
 test('generates an ephemeral wallet in DRY_RUN with no key', () => {
