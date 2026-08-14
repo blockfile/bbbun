@@ -40,10 +40,10 @@ test('DRY_RUN snapshot returns simulated eligible holders, excluding the operati
   assert.ok(!holders.some((h) => h.owner.toLowerCase() === wallet.address.toLowerCase()));
 });
 
-test('buildExcludeSet includes wallet, dead, buyback vault, reward token', async () => {
+test('buildExcludeSet includes wallet, dead, pool manager, reward token', async () => {
   const set = await buildExcludeSet(null);
   assert.ok(set.has(wallet.address.toLowerCase()));
   assert.ok(set.has(config.deadAddress.toLowerCase()));
-  assert.ok(set.has(config.buybackVault.toLowerCase()));
+  assert.ok(set.has(config.poolManager.toLowerCase()));
   assert.ok(set.has(config.rewardToken.toLowerCase()));
 });

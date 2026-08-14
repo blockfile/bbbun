@@ -4,9 +4,10 @@
 //
 // The Blockscout explorer (used for holder snapshots) sits behind Cloudflare and
 // intermittently returns 520/5xx/429 — a single blip must not fail a whole cycle
-// (cycle 19 bought PONS, then a lone 520 on the holder fetch failed the cycle and
-// stranded the PONS). We retry those with backoff; genuinely non-retryable
-// responses (e.g. 404) and network errors past the retry budget still throw.
+// (a cycle that already bought ROBBIE, then hits a lone 520 on the holder fetch,
+// would fail the cycle and strand the ROBBIE it just bought). We retry those with
+// backoff; genuinely non-retryable responses (e.g. 404) and network errors past
+// the retry budget still throw.
 
 const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524]);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

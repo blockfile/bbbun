@@ -47,7 +47,7 @@ async function fetchAllHolders(token) {
   do {
     const url = params ? `${base}?${new URLSearchParams(params).toString()}` : base;
     // Retry transient explorer errors (Blockscout/Cloudflare 520/5xx/429) so a
-    // blip doesn't fail the whole cycle after PONS has already been bought.
+    // blip doesn't fail the whole cycle after ROBBIE has already been bought.
     let data;
     try {
       data = await fetchJson(url, { headers: { accept: 'application/json' } });

@@ -2,8 +2,8 @@
 
 // Nonce-safe transaction sending.
 //
-// This bot fires several txs per cycle from ONE wallet (claim → buy → airdrop →
-// burn → unwrap). Nonces are assigned by ethers reading getTransactionCount from
+// This bot fires several txs per cycle from ONE wallet (sweep → claim → buy →
+// airdrop). Nonces are assigned by ethers reading getTransactionCount from
 // the RPC at send time. Robinhood Chain's public RPC is load-balanced across
 // nodes with slightly divergent views, so right after a tx is mined the next
 // send can read a STALE nonce and be built with an already-used value — the node
