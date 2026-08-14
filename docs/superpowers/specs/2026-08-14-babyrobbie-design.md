@@ -107,6 +107,26 @@ both phases. It is set in `TokenParams` at launch and may differ from the wallet
 that launches the token, so the pons-launcher dev wallet can launch while this
 bot's wallet takes the fees.
 
+### Launch-time settings that decide how much the bot earns
+
+Two fields in `TokenParams` are set once, at launch, and cannot be raised
+afterwards. They are the largest lever on this bot's revenue and belong in the
+launch checklist, not in this repo's config:
+
+- **`creatorFeeRecipient`** — must be this bot's wallet, per the section above.
+- **`creatorTaxBps`** — an extra tax charged on every trade and paid to the
+  creator **in full**, with no protocol share taken. The factory caps it at
+  `maxCreatorTaxBps = 1000` (10%). Live launches use the full range: `$NYAM`
+  runs 0, `FORGE` runs 100 (1%), `hRWA` runs 1000 (10%).
+
+Without a creator tax the bot's only income is the creator's 70% of the 1%
+trade fee — that is, 0.7% of volume. Setting `creatorTaxBps` adds its full value
+on top, so a 1% tax more than doubles the bot's income and a 10% tax is roughly
+fifteen times it. It also makes the token more expensive to trade, which is the
+trade-off to weigh before launch.
+
+The launch fee itself is 0.0005 ETH.
+
 ### The operator caveat
 
 Both sweep functions revert `InternalSwapRequiresOperator` when the pool or curve
@@ -164,7 +184,7 @@ REUSED from ponsliqui             REWRITTEN for v2/v4
 
 ```
 tick (POLL_SCHEDULE)
-  └─ claimable = escrow.balanceOf(wallet)
+  └─ claimable = escrow.balanceOf(wallet) + sweepable(phase)
      gate: interval (any > 0) | accumulation (>= CLAIM_EVERY_ETH)
         └─ runCycle()
            1. sweep    graduated ? hook.sweepPoolFees : curve.sweepFees   [best-effort]
@@ -177,6 +197,31 @@ tick (POLL_SCHEDULE)
 
 Each step is persisted to MongoDB and pushed to SSE clients. A thrown step
 records an `error` step and fails the cycle without crashing the process.
+
+### The trigger must count unswept fees, not just the escrow
+
+Fees accrue **on the curve or the hook** and only reach the escrow when someone
+sweeps. Before the first sweep `escrow.balanceOf(wallet)` reads zero even though
+real money is waiting — verified live on the unbonded `$NYAM` curve, which held
+0.005885 ETH in `quoteFeeBalance` against an escrow balance of 0.
+
+Gating on the escrow alone therefore deadlocks: the bot sees nothing claimable,
+never sweeps, so nothing ever reaches the escrow. The claimable figure is:
+
+```
+claimable = escrow.balanceOf(wallet) + sweepable(phase)
+
+sweepable, curve phase = creatorShare(curve.quoteFeeBalance())
+                       + curve.creatorTaxBalance()
+sweepable, v4 phase    = creatorShare(hook.pendingFees(poolId, quote))
+                       + hook.pendingCreatorTax(poolId, quote)
+
+creatorShare(x) = x * (10000 - protocolFeeShareBps) / 10000
+```
+
+The creator tax is not subject to the protocol share — it is paid to the creator
+in full. The buyback earmark is subtracted from the creator bucket only when the
+launch enables buyback, which this one will not.
 
 ### Claimed amount is measured, not estimated
 
@@ -282,10 +327,12 @@ sweep was skipped for lack of operator authorization.
 ## Open risks
 
 1. **BABY ROBBIE does not exist yet.** Development and tests run against
-   `DRY_RUN` plus ROBBIE's live graduated pool as a read-only fixture. The curve
-   phase has no such fixture yet: implementation must first locate a live
-   pre-graduation v2 curve on chain to validate `sweepFees` and `curve.buy`
-   reads against, and fall back to recorded fixtures if none is trading.
+   `DRY_RUN` plus two live read-only fixtures, both confirmed on chain:
+   ROBBIE's graduated v4 pool for the post-bond path, and the unbonded `$NYAM`
+   curve (`0x70abE52baaFfDE66ea2f291D5d984A888473aCd6`, token
+   `0xC73C4456960c770003efc5D7627b8d71FE3D6297`) for the curve path. Curves are
+   short-lived — they graduate — so the test should resolve an unbonded curve
+   dynamically from recent `TokenLaunched` events rather than pin this address.
 2. **Airdrop gas at scale**, addressed by `DISPERSE_ADDRESS` above.
 3. **pons may redeploy v2 contracts without a changelog.** The sibling project
    documents that the published docs list superseded addresses. Every address is
