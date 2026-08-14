@@ -2,7 +2,7 @@
   "name": "babyrobbie",
   "version": "0.1.0",
   "private": true,
-  "description": "pons v2 reward bot on Robinhood Chain: recycles BABY ROBBIE creator fees into buying + airdropping ROBBIE to holders, buying + burning BABY ROBBIE, and a dev cut (DRY_RUN first).",
+  "description": "pons v2 reward bot on Robinhood Chain: recycles BABY ROBBIE creator fees into buying + airdropping ROBBIE to holders, and a dev cut (DRY_RUN first).",
   "type": "commonjs",
   "main": "server.js",
   "scripts": {
@@ -13,7 +13,6 @@
     "sweep": "node scripts/sweep.js",
     "claim": "node scripts/claim.js",
     "buy": "node scripts/buy.js",
-    "burn": "node scripts/burn.js",
     "run-once": "node scripts/run-once.js"
   },
   "engines": { "node": ">=20" },

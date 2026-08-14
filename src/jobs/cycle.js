@@ -35,15 +35,15 @@ function splitClaim(claimedEth) {
 }
 
 /** Buy the reward token and airdrop it pro-rata to holders of the fee token. */
-async function runRewardLeg(cycleId, { launch, rewardLaunch, wethAmount }) {
+async function runRewardLeg(cycleId, { launch, rewardLaunch, ethAmount }) {
   const log = (m) => console.log(`[cycle ${cycleId}] [reward] ${m}`);
 
-  const buy = await buyToken({ launch: rewardLaunch, token: config.rewardToken, ethAmount: wethAmount });
+  const buy = await buyToken({ launch: rewardLaunch, token: config.rewardToken, ethAmount });
   await repo.addStep({
     cycleId, name: 'buy', status: 'ok', signature: buy.signature,
-    detail: { leg: 'reward', token: config.rewardToken, ethSpent: wethAmount, tokensBought: buy.tokensBought, venue: buy.venue },
+    detail: { leg: 'reward', token: config.rewardToken, ethSpent: ethAmount, tokensBought: buy.tokensBought, venue: buy.venue },
   });
-  log(`bought ${buy.tokensBought} ${config.rewardSymbol} with ${wethAmount} ETH`);
+  log(`bought ${buy.tokensBought} ${config.rewardSymbol} with ${ethAmount} ETH`);
 
   const minHoldRaw = (BigInt(Math.trunc(config.minHold)) * 10n ** 18n).toString();
   const exclude = await buildExcludeSet(launch);
@@ -110,7 +110,7 @@ async function runCycle() {
       const rewardLaunch = config.dryRun
         ? { graduated: true, poolKey: null, poolFee: 0, tickSpacing: 200, pairToken: null }
         : await getLaunch(config.rewardToken);
-      reward = await runRewardLeg(id, { launch, rewardLaunch, wethAmount: rewardEth });
+      reward = await runRewardLeg(id, { launch, rewardLaunch, ethAmount: rewardEth });
     }
 
     // 5. Dev cut needs no transaction: it is already native ETH in the wallet.
