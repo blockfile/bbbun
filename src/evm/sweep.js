@@ -39,8 +39,20 @@ function creatorShareRaw(pendingRaw, protocolFeeShareBps) {
 
 /** Both contracts refuse a sweep that would need pons's trusted operator. */
 function isOperatorOnlyError(err) {
-  const m = String((err && (err.shortMessage || err.message)) || '');
-  return m.includes('InternalSwapRequiresOperator') || m.includes('NotFeeSweepOperator');
+  if (!err) return false;
+
+  // Check error name (works after ABI declaration lets ethers decode the custom error)
+  const m = String((err.shortMessage || err.message) || '');
+  if (m.includes('InternalSwapRequiresOperator') || m.includes('NotFeeSweepOperator')) {
+    return true;
+  }
+
+  // Check raw selector bytes — ethers error shape varies by provider and context.
+  // InternalSwapRequiresOperator() = 0x31cdb504, NotFeeSweepOperator() = 0x8d42130c
+  const data = String(
+    (err.data) || (err.info && err.info.error && err.info.error.data) || (err.error && err.error.data) || ''
+  );
+  return data.includes('31cdb504') || data.includes('8d42130c');
 }
 
 function curveAt(address, runner = provider) {

@@ -41,6 +41,8 @@ const CURVE_ABI = [
   'function feeBps() view returns (uint256)',
   'function creatorTaxBps() view returns (uint256)',
   'function sellableTokens() view returns (uint256)',
+  'error InternalSwapRequiresOperator()',
+  'error NotFeeSweepOperator()',
 ];
 
 // LaunchInfo field order, from V2MemeHook.sol:48.
@@ -53,6 +55,8 @@ const HOOK_ABI = [
   'function poolManager() view returns (address)',
   'function feeEscrow() view returns (address)',
   'function feeSweepOperator() view returns (address)',
+  'error InternalSwapRequiresOperator()',
+  'error NotFeeSweepOperator()',
 ];
 
 const ESCROW_ABI = [
