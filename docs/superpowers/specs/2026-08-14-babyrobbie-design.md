@@ -11,14 +11,17 @@ fees. This bot claims those fees on a timer and recycles them into three streams
 
 ```
 BABY ROBBIE creator fees  (claimed as native ETH from the pons v2 fee escrow)
-  ├─ 80%    → buy ROBBIE       → airdrop to BABY ROBBIE holders (>=100k, pro-rata)
-  ├─  0.1%  → buy BABY ROBBIE  → burn to 0x…dEaD
-  └─ 19.9%  → dev cut + gas    (stays native, no action needed)
+  ├─ 80%  → buy ROBBIE  → airdrop to BABY ROBBIE holders (>=100k, pro-rata)
+  └─ 20%  → dev cut + gas  (stays native, no action needed)
 ```
 
-BABY ROBBIE is the token on both ends: its fees fund the cycle, its holders are
-the recipients, and it is what gets burned. ROBBIE is only ever bought and
-handed out.
+BABY ROBBIE's trading fees fund the cycle and its holders are the recipients.
+ROBBIE is only ever bought and handed out.
+
+**There is no burn leg.** An earlier revision of this design bought BABY ROBBIE
+with 0.1% of each claim and sent it to the dead address; that was dropped, and
+its share folds into the dev cut, which is defined as the remainder. Nothing in
+this project buys or burns BABY ROBBIE.
 
 This is a sibling of `ponsliqui`, which does the same job for a pons **v1**
 token. pons v2 is a different protocol, not a newer version of v1, so the entire
@@ -153,7 +156,7 @@ REUSED from ponsliqui             REWRITTEN for v2/v4
   evm/airdrop.js                    evm/curve.js     curve buy + reads
   evm/holders.js                    evm/pool.js      PoolKey, poolId, quote
   evm/erc20.js       (minus WETH)   evm/exclude.js   v4-aware exclusions
-  db/ routes/ events (SSE)          evm/burn.js      (port, minus WETH)
+  db/ routes/ events (SSE)          evm/escrow.js    claim (native ETH)
   scripts/*.js       (retargeted)
 ```
 
@@ -189,10 +192,9 @@ tick (POLL_SCHEDULE)
         └─ runCycle()
            1. sweep    graduated ? hook.sweepPoolFees : curve.sweepFees   [best-effort]
            2. claim    escrow.claim()  → native ETH, measured from the receipt
-           3. split    80% / 0.1% / 19.9% of the claimed amount
+           3. split    80% / 20% of the claimed amount
            4. reward   buy ROBBIE → snapshot BABY ROBBIE holders → airdrop pro-rata
-           5. burn     buy BABY ROBBIE → transfer to 0x…dEaD
-           6. dev      no action — already native ETH
+           5. dev      no action — already native ETH
 ```
 
 Each step is persisted to MongoDB and pushed to SSE clients. A thrown step
@@ -255,10 +257,8 @@ recommended before going live. The 19.9% dev cut exists to fund this.
 
 ```
 REWARD_BUY_PCT=80          # buy ROBBIE + airdrop
-BURN_PCT=0.1               # buy BABY ROBBIE + burn
-                           # dev = 100 - 80 - 0.1 = 19.9, kept as native ETH
+                           # dev = 100 - 80 = 20, kept as native ETH
 MIN_HOLD=100000            # min BABY ROBBIE balance to qualify
-MIN_BURN_ETH=0.0001        # below this the burn leg is skipped, not attempted
 TOKEN_ADDRESS=             # BABY ROBBIE — blank until launched
 REWARD_TOKEN=0xe0eba1B76b73BE7bfA7716b6Ca96f724930e2263
 ```
@@ -271,9 +271,6 @@ every chain call.
 
 - **Sweep unauthorized** (`InternalSwapRequiresOperator`) — log, skip, claim the
   existing escrow balance, continue. Not a cycle failure.
-- **Burn dust** — 0.1% of a small claim falls below gas cost (0.1% of 0.005 ETH
-  is 5 µETH). `MIN_BURN_ETH` skips the leg and records it as skipped. The
-  skipped amount does **not** accumulate; the next cycle computes 0.1% fresh.
 - **Buy revert** — re-quote and retry 3 times. More likely on v4 than v3 because
   the hook takes 1% and caps internal price impact at 300 bps.
 - **Holders fetch** — retry transient explorer 5xx/429, as ponsliqui does, so a
@@ -292,7 +289,7 @@ scheduler gating, and config parsing. New suites cover:
 - **V4_SWAP encoding** — commands, actions and input encoding for a native-ETH
   exact-in swap.
 - **Phase dispatch** — curve vs v4 for both sweep and buy.
-- **Split math** — including the 0.1% dust path and `MIN_BURN_ETH` skip.
+- **Split math** — the reward and dev legs always re-add to the claim.
 - **Exclusions** — PoolManager, curve, hook, vault and escrow are all dropped.
 
 ## Scripts
@@ -302,7 +299,7 @@ Read-only preflight and dust-tests, each requiring `--confirm` to send:
 - `check.js` — verifies the wallet is BABY ROBBIE's `creatorFeeRecipient`,
   reports the phase, escrow balance, resolved poolId and a live quote. Degrades
   gracefully when `TOKEN_ADDRESS` is unset.
-- `sweep.js`, `claim.js`, `buy.js`, `burn.js`, `run-once.js`.
+- `sweep.js`, `claim.js`, `buy.js`, `run-once.js`.
 
 ## API
 
@@ -319,8 +316,9 @@ sweep was skipped for lack of operator authorization.
 
 - Launching BABY ROBBIE. That is `pons-launcher`'s job; this bot takes
   `TOKEN_ADDRESS` once the token exists.
-- Selling any token. The bot only buys, transfers and burns, which is why no
-  Permit2 approval path is built.
+- Selling any token. The bot only buys and transfers, which is why no Permit2
+  approval path is built.
+- Burning anything. See the note under Summary.
 - A frontend. The public endpoints are shaped for one, but the site lives
   elsewhere, as with ponsliqui.
 

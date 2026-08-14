@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a bot that claims BABY ROBBIE's pons v2 creator fees and recycles them into buying ROBBIE for a pro-rata airdrop to BABY ROBBIE holders, a 0.1% BABY ROBBIE buy-and-burn, and a dev cut.
+**Goal:** Build a bot that claims BABY ROBBIE's pons v2 creator fees and recycles them into buying ROBBIE for a pro-rata airdrop to BABY ROBBIE holders, and a dev cut.
 
 **Architecture:** A cron-driven cycle over a MongoDB-backed step log, fronted by an Express API with SSE. The chain layer targets pons **v2** and switches on one phase flag (`curve.graduated()`): pre-bond it sweeps and buys on the bonding curve, post-bond on the Uniswap v4 pool via UniversalRouter. Both phases claim from the same `V2FeeEscrow`, in native ETH.
 
@@ -14,7 +14,8 @@
 - `DRY_RUN=true` is the default and MUST simulate every chain call. No test may send a transaction.
 - All money math on chain amounts uses `BigInt`. Percentages may use `Number`, but any base-unit value crossing a contract boundary is `BigInt`.
 - Native ETH is `address(0)` = `0x0000000000000000000000000000000000000000`. There is no WETH anywhere in this project.
-- The bot only ever **buys, transfers and burns**. It never sells, so no Permit2 approval path may be written.
+- The bot only ever **buys and transfers**. It never sells and never burns, so no Permit2 approval path and no burn path may be written.
+- The split is **80% reward / 20% dev**. There is no burn leg; an earlier revision had one and it was dropped.
 - Chain id `4663` (Robinhood Chain). Every contract address is configurable via env with the verified default baked in.
 - Spec: `docs/superpowers/specs/2026-08-14-babyrobbie-design.md`. Read it before Task 1.
 
@@ -58,7 +59,6 @@ src/evm/sweep.js           curve|hook sweep dispatch + sweepable math
 src/evm/curve.js           bonding-curve buy + reads
 src/evm/v4router.js        UniversalRouter V4_SWAP encoding          (PURE)
 src/evm/buy.js             buy dispatch (curve|v4) + requote/retry
-src/evm/burn.js            transfer to dead address
 src/evm/holders.js         Blockscout holder snapshot
 src/evm/exclude.js         airdrop exclusion set
 src/evm/airdrop.js         pipelined/disperse airdrop
@@ -75,7 +75,7 @@ src/jobs/cycle.js          the cycle
 src/jobs/scheduler.js      cron + trigger gate
 src/routes/{status,cycles,control,metrics,stream,public}.js
 src/middleware/auth.js     x-api-key
-scripts/{_util,check,sweep,claim,buy,burn,run-once}.js
+scripts/{_util,check,sweep,claim,buy,run-once}.js
 ```
 
 ---
@@ -88,7 +88,7 @@ scripts/{_util,check,sweep,claim,buy,burn,run-once}.js
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `require('./config')` → object with `dryRun, port, rpcUrl, chainId, explorerApi, wallet, walletIsEphemeral, v2Factory, memeHook, feeEscrow, buybackVault, poolManager, universalRouter, stateView, v4Quoter, tokenAddress, tokenSymbol, rewardToken, rewardSymbol, rewardBuyPct, burnPct, devPct, minBurnEth, slippagePct, gasReserveEth, deadAddress, minHold, rewardCapPct, clusters, airdropBatchSize, airdropGasLimit, disperseAddress, airdropExclude, triggerMode, pollSchedule, claimEveryEth, dryRunFeePerPoll, mongoUri, mongoDb, corsOrigins, apiKey`. Also `require('./events')` → a shared `EventEmitter`.
+- Produces: `require('./config')` → object with `dryRun, port, rpcUrl, chainId, explorerApi, wallet, walletIsEphemeral, v2Factory, memeHook, feeEscrow, buybackVault, poolManager, universalRouter, stateView, v4Quoter, tokenAddress, tokenSymbol, rewardToken, rewardSymbol, rewardBuyPct, devPct, slippagePct, gasReserveEth, deadAddress, minHold, rewardCapPct, clusters, airdropBatchSize, airdropGasLimit, disperseAddress, airdropExclude, triggerMode, pollSchedule, claimEveryEth, dryRunFeePerPoll, mongoUri, mongoDb, corsOrigins, apiKey`. Also `require('./events')` → a shared `EventEmitter`.
 
 - [ ] **Step 1: Create `package.json`**
 
@@ -97,7 +97,7 @@ scripts/{_util,check,sweep,claim,buy,burn,run-once}.js
   "name": "babyrobbie",
   "version": "0.1.0",
   "private": true,
-  "description": "pons v2 reward bot on Robinhood Chain: recycles BABY ROBBIE creator fees into buying + airdropping ROBBIE to holders, buying + burning BABY ROBBIE, and a dev cut (DRY_RUN first).",
+  "description": "pons v2 reward bot on Robinhood Chain: recycles BABY ROBBIE creator fees into buying + airdropping ROBBIE to holders and a dev cut (DRY_RUN first).",
   "type": "commonjs",
   "main": "server.js",
   "scripts": {
@@ -108,7 +108,6 @@ scripts/{_util,check,sweep,claim,buy,burn,run-once}.js
     "sweep": "node scripts/sweep.js",
     "claim": "node scripts/claim.js",
     "buy": "node scripts/buy.js",
-    "burn": "node scripts/burn.js",
     "run-once": "node scripts/run-once.js"
   },
   "engines": { "node": ">=20" },
@@ -144,21 +143,30 @@ function loadConfig(env) {
   return require('./config');
 }
 
-test('defaults to the 80 / 0.1 / 19.9 split', () => {
-  const c = loadConfig({ DRY_RUN: 'true', REWARD_BUY_PCT: '', BURN_PCT: '' });
+test('defaults to the 80 / 20 split', () => {
+  const c = loadConfig({ DRY_RUN: 'true', REWARD_BUY_PCT: '' });
   assert.strictEqual(c.rewardBuyPct, 80);
-  assert.strictEqual(c.burnPct, 0.1);
+  assert.strictEqual(c.devPct, 20);
+});
+
+test('rejects a reward share above 100', () => {
+  assert.throws(() => loadConfig({ DRY_RUN: 'true', REWARD_BUY_PCT: '105' }), /invalid split/);
+});
+
+test('rejects a negative reward share', () => {
+  assert.throws(() => loadConfig({ DRY_RUN: 'true', REWARD_BUY_PCT: '-1' }), /invalid split/);
+});
+
+test('accepts a fractional reward share without float drift', () => {
+  const c = loadConfig({ DRY_RUN: 'true', REWARD_BUY_PCT: '80.1' });
+  assert.strictEqual(c.rewardBuyPct, 80.1);
   assert.strictEqual(c.devPct, 19.9); // must not be 19.900000000000006
 });
 
-test('rejects a split that exceeds 100', () => {
-  assert.throws(() => loadConfig({ DRY_RUN: 'true', REWARD_BUY_PCT: '95', BURN_PCT: '10' }), /invalid split/);
-});
-
-test('allows a fractional burn percentage', () => {
-  const c = loadConfig({ DRY_RUN: 'true', REWARD_BUY_PCT: '80', BURN_PCT: '0.5' });
-  assert.strictEqual(c.burnPct, 0.5);
-  assert.strictEqual(c.devPct, 19.5);
+test('exposes no burn configuration at all', () => {
+  const c = loadConfig({ DRY_RUN: 'true' });
+  assert.strictEqual(c.burnPct, undefined);
+  assert.strictEqual(c.minBurnEth, undefined);
 });
 
 test('generates an ephemeral wallet in DRY_RUN with no key', () => {
@@ -186,7 +194,7 @@ Expected: FAIL — `Cannot find module './config'`
 
 - [ ] **Step 4: Write `src/config.js`**
 
-Model it on `d:/projects/ponsliqui/src/config.js`, with these differences: no WETH, no swapRouter, no ponsLocker, no protocolFeeSharePct; add the v2/v4 addresses and `minBurnEth`. Key section:
+Model it on `d:/projects/ponsliqui/src/config.js`, with these differences: no WETH, no swapRouter, no ponsLocker, no protocolFeeSharePct, and no burn settings at all. Key section:
 
 ```js
 'use strict';
@@ -230,12 +238,12 @@ function loadWallet() {
 const { wallet, ephemeral: walletIsEphemeral } = loadWallet();
 
 const rewardBuyPct = num(process.env.REWARD_BUY_PCT, 80);
-const burnPct = num(process.env.BURN_PCT, 0.1);
-if (rewardBuyPct < 0 || burnPct < 0 || rewardBuyPct + burnPct > 100) {
-  throw new Error(`invalid split: REWARD_BUY_PCT(${rewardBuyPct}) + BURN_PCT(${burnPct}) must be within [0, 100]`);
+if (!(rewardBuyPct >= 0 && rewardBuyPct <= 100)) {
+  throw new Error(`invalid split: REWARD_BUY_PCT(${rewardBuyPct}) must be within [0, 100]`);
 }
-// toFixed(6) kills float drift: 100 - 80 - 0.1 is 19.900000000000006 in binary FP.
-const devPct = +(100 - rewardBuyPct - burnPct).toFixed(6);
+// The dev cut is defined as the remainder. toFixed(6) keeps a fractional reward
+// share from leaving float dust behind (100 - 80.1 is 19.900000000000006 in FP).
+const devPct = +(100 - rewardBuyPct).toFixed(6);
 
 const triggerMode = ['interval', 'accumulation'].includes(String(process.env.TRIGGER_MODE || 'interval').toLowerCase())
   ? String(process.env.TRIGGER_MODE || 'interval').toLowerCase() : 'interval';
@@ -265,11 +273,7 @@ const config = {
   rewardSymbol: process.env.REWARD_SYMBOL || 'ROBBIE',
 
   rewardBuyPct,
-  burnPct,
   devPct,
-  // 0.1% of a small claim is dust below gas cost. Below this the burn leg is
-  // skipped rather than attempted; it does NOT roll into the next cycle.
-  minBurnEth: num(process.env.MIN_BURN_ETH, 0.0001),
   slippagePct: num(process.env.SLIPPAGE_PCT, 5),
   gasReserveEth: num(process.env.GAS_RESERVE_ETH, 0.005),
   deadAddress: lowerOr(process.env.DEAD_ADDRESS, '0x000000000000000000000000000000000000dead'),
@@ -1591,16 +1595,15 @@ git commit -m "Buy with native ETH on either the bonding curve or the v4 pool"
 
 ---
 
-### Task 9: Burn, holders, exclusions
+### Task 9: Holders and exclusions
 
 **Files:**
-- Create: `src/evm/send.js`, `src/evm/burn.js`, `src/services/fetchJson.js`, `src/evm/holders.js`, `src/evm/exclude.js`
-- Test: `src/evm/burn.test.js`, `src/evm/holders.test.js`, `src/evm/exclude.test.js`
+- Create: `src/evm/send.js`, `src/services/fetchJson.js`, `src/evm/holders.js`, `src/evm/exclude.js`
+- Test: `src/evm/holders.test.js`, `src/evm/exclude.test.js`
 
 **Interfaces:**
 - Produces:
   - `send.js` → `sendTx(fn) -> Promise<TransactionResponse>` (retries once on a stale-nonce reject)
-  - `burn.js` → `burnToken(token, amountRaw) -> Promise<{signature, burnedRaw, burned, deadAddress, simulated}>`
   - `fetchJson.js` → `fetchJson(url, opts) -> Promise<object>` (retries 429/5xx)
   - `holders.js` → `filterEligible(accounts, minHoldRaw, excludeSet)`, `countOwners(accounts)`, `snapshotEligibleHolders({token, minHoldRaw, exclude}) -> Promise<{holders, totalHolders}>`
   - `exclude.js` → `buildExcludeSet(launch) -> Promise<Set<string>>`
@@ -1616,10 +1619,6 @@ In `holders.js`, change the DRY_RUN simulated set to use `wallet.address` as bef
 - `d:/projects/ponsliqui/src/evm/send.test.js` → `src/evm/send.test.js`
 - `d:/projects/ponsliqui/src/services/fetchJson.test.js` → `src/services/fetchJson.test.js`
 - `d:/projects/ponsliqui/src/evm/holders.test.js` → `src/evm/holders.test.js`
-
-- [ ] **Step 2: Port `burn.js`**
-
-Copy `d:/projects/ponsliqui/src/evm/burn.js` and `burn.test.js` verbatim — burning is a plain ERC-20 transfer to the dead address and is identical across protocol versions.
 
 - [ ] **Step 3: Write the failing exclusion test**
 
@@ -1681,7 +1680,7 @@ async function buildExcludeSet(launch = null) {
   const add = (a) => { if (a) set.add(String(a).toLowerCase()); };
 
   add(wallet.address);        // us
-  add(config.deadAddress);    // burned supply
+  add(config.deadAddress);    // supply holders burned themselves
   add(config.poolManager);    // v4 liquidity custodian
   add(config.memeHook);       // pending fee inventory
   add(config.buybackVault);   // vesting locks
@@ -1699,14 +1698,14 @@ module.exports = { buildExcludeSet };
 
 - [ ] **Step 6: Run all the tests from this task**
 
-Run: `node --test src/evm/exclude.test.js src/evm/burn.test.js src/evm/holders.test.js src/evm/send.test.js src/services/fetchJson.test.js`
+Run: `node --test src/evm/exclude.test.js src/evm/holders.test.js src/evm/send.test.js src/services/fetchJson.test.js`
 Expected: PASS
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/evm/send.js src/evm/burn.js src/evm/holders.js src/evm/exclude.js src/services/fetchJson.js src/evm/*.test.js src/services/fetchJson.test.js
-git commit -m "Add burning, holder snapshots, and v4-aware airdrop exclusions"
+git add src/evm/send.js src/evm/holders.js src/evm/exclude.js src/services/fetchJson.js src/evm/*.test.js src/services/fetchJson.test.js
+git commit -m "Add holder snapshots and v4-aware airdrop exclusions"
 ```
 
 ---
@@ -1793,7 +1792,7 @@ In `src/db/repository.js`, extend the `allowed` array in `finishCycle`:
 ```js
   const allowed = [
     'status', 'mode', 'phase', 'eth_claimed', 'eth_spent_buy',
-    'tokens_bought', 'tokens_burned', 'burn_sig',
+    'tokens_bought',
     'eligible_holders', 'total_holders',
     'sweep_skipped', 'sweep_reason',
     'note', 'error',
@@ -1824,7 +1823,7 @@ git commit -m "Port the MongoDB store and record the sweep outcome per cycle"
 
 **Interfaces:**
 - Consumes: everything above.
-- Produces: `runCycle() -> Promise<cycle>`, `splitClaim(claimedEth) -> {rewardEth, burnEth, devEth, burnSkipped}` (PURE)
+- Produces: `runCycle() -> Promise<cycle>`, `splitClaim(claimedEth) -> {rewardEth, devEth}` (PURE)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1836,40 +1835,37 @@ const test = require('node:test');
 const assert = require('node:assert');
 process.env.DRY_RUN = 'true';
 process.env.REWARD_BUY_PCT = '80';
-process.env.BURN_PCT = '0.1';
-process.env.MIN_BURN_ETH = '0.0001';
 delete require.cache[require.resolve('../config')];
 
 const { splitClaim } = require('./cycle');
 
-test('splits a claim 80 / 0.1 / 19.9', () => {
+test('splits a claim 80 / 20', () => {
   const s = splitClaim(1);
   assert.strictEqual(s.rewardEth, 0.8);
-  assert.strictEqual(s.burnEth, 0.001);
-  assert.strictEqual(s.devEth, 0.199);
-  assert.strictEqual(s.burnSkipped, false);
+  assert.strictEqual(s.devEth, 0.2);
 });
 
-test('the three legs always re-add to the claim', () => {
+test('the two legs always re-add to the claim', () => {
   for (const claim of [0.001, 0.5, 1, 3.14159, 21.368470124]) {
     const s = splitClaim(claim);
-    const total = s.rewardEth + (s.burnSkipped ? 0 : s.burnEth) + s.devEth;
+    const total = s.rewardEth + s.devEth;
     assert.ok(Math.abs(total - claim) < 1e-9, `claim ${claim} lost ${claim - total}`);
   }
-});
-
-test('skips a burn that would cost more in gas than it burns', () => {
-  // 0.1% of 0.005 ETH = 5e-6, below MIN_BURN_ETH of 1e-4
-  const s = splitClaim(0.005);
-  assert.strictEqual(s.burnSkipped, true);
-  // the skipped burn folds into the dev cut rather than vanishing
-  assert.ok(Math.abs(s.rewardEth + s.devEth - 0.005) < 1e-9);
 });
 
 test('a zero claim produces zero legs', () => {
   const s = splitClaim(0);
   assert.strictEqual(s.rewardEth, 0);
   assert.strictEqual(s.devEth, 0);
+});
+
+// The burn leg was removed from this project by decision. DRY_RUN would happily
+// simulate one, so the absence is asserted at the source level instead.
+test('the cycle has no burn leg at all', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = fs.readFileSync(path.join(__dirname, 'cycle.js'), 'utf8');
+  assert.doesNotMatch(src, /burnToken|deadAddress|burnPct/, 'the burn leg was removed by design');
 });
 ```
 
@@ -1883,13 +1879,14 @@ Expected: FAIL — `Cannot find module './cycle'`
 ```js
 'use strict';
 
-// One reward-and-burn cycle:
+// One reward cycle:
 //
 //   sweep pending fees into the escrow      (best-effort — may need pons's operator)
 //   claim the escrow                        -> native ETH
 //     -> REWARD_BUY_PCT: buy ROBBIE and airdrop it to BABY ROBBIE holders
-//     -> BURN_PCT:       buy BABY ROBBIE and burn it
 //     -> remainder:      stays in the wallet as native ETH (dev cut + gas)
+//
+// There is deliberately NO burn leg: nothing here buys or burns BABY ROBBIE.
 //
 // Each step is recorded; a thrown step fails the cycle without crashing.
 
@@ -1899,7 +1896,6 @@ const { getLaunch, describePhase } = require('../evm/launch');
 const { sweepFees } = require('../evm/sweep');
 const { claimFromEscrow } = require('../evm/escrow');
 const { buyToken } = require('../evm/buy');
-const { burnToken } = require('../evm/burn');
 const { getTokenSupplyRaw } = require('../evm/erc20');
 const { snapshotEligibleHolders } = require('../evm/holders');
 const { buildExcludeSet } = require('../evm/exclude');
@@ -1907,20 +1903,14 @@ const { computeWeightedAllocations } = require('../services/distribution');
 const { airdropToken } = require('../evm/airdrop');
 
 /**
- * Split a claim into its three legs. Pure, so the invariant that the legs
- * re-add to the claim is directly testable.
- *
- * A burn below MIN_BURN_ETH is skipped rather than attempted — 0.1% of a small
- * claim costs more in gas than it removes from supply. The skipped amount folds
- * into the dev cut; it does NOT accumulate toward the next cycle.
+ * Split a claim into its two legs. Pure, so the invariant that the legs re-add
+ * to the claim is directly testable. The dev cut is the remainder and needs no
+ * transaction — it is already native ETH sitting in the wallet.
  */
 function splitClaim(claimedEth) {
-  const pct = (p) => +(claimedEth * (p / 100)).toFixed(9);
-  const rewardEth = pct(config.rewardBuyPct);
-  const burnEth = pct(config.burnPct);
-  const burnSkipped = burnEth > 0 && burnEth < config.minBurnEth;
-  const devEth = +(claimedEth - rewardEth - (burnSkipped ? 0 : burnEth)).toFixed(9);
-  return { rewardEth, burnEth, devEth, burnSkipped };
+  const rewardEth = +(claimedEth * (config.rewardBuyPct / 100)).toFixed(9);
+  const devEth = +(claimedEth - rewardEth).toFixed(9);
+  return { rewardEth, devEth };
 }
 
 /** Buy the reward token and airdrop it pro-rata to holders of the fee token. */
@@ -1989,8 +1979,8 @@ async function runCycle() {
     }
 
     // 3. Split.
-    const { rewardEth, burnEth, devEth, burnSkipped } = splitClaim(claimed);
-    log(`split: ${rewardEth} -> ${config.rewardSymbol} reward (${config.rewardBuyPct}%), ${burnEth} -> ${config.tokenSymbol} burn (${config.burnPct}%${burnSkipped ? ', SKIPPED as dust' : ''}), keep ${devEth} for dev/gas`);
+    const { rewardEth, devEth } = splitClaim(claimed);
+    log(`split: ${rewardEth} -> ${config.rewardSymbol} reward (${config.rewardBuyPct}%), keep ${devEth} for dev/gas`);
 
     // 4. Reward leg. The reward token is already graduated, so it always
     //    trades on v4 regardless of which phase OUR token is in.
@@ -2002,35 +1992,17 @@ async function runCycle() {
       reward = await runRewardLeg(id, { launch, rewardLaunch, wethAmount: rewardEth });
     }
 
-    // 5. Burn leg.
-    let burned = 0;
-    let burnSig = null;
-    if (burnEth > 0 && !burnSkipped) {
-      const buyBurn = await buyToken({ launch, token: launch.token, ethAmount: burnEth });
-      await repo.addStep({
-        cycleId: id, name: 'buy', status: 'ok', signature: buyBurn.signature,
-        detail: { leg: 'burn', token: launch.token, ethSpent: burnEth, tokensBought: buyBurn.tokensBought, venue: buyBurn.venue },
-      });
-      const burn = await burnToken(launch.token, buyBurn.tokensBoughtRaw);
-      await repo.addStep({ cycleId: id, name: 'burn', status: 'ok', signature: burn.signature, detail: { tokensBurned: burn.burned, burnedRaw: burn.burnedRaw, deadAddress: burn.deadAddress } });
-      burned = burn.burned;
-      burnSig = burn.signature;
-      log(`burned ${burn.burned} ${config.tokenSymbol} -> ${burn.deadAddress}`);
-    } else if (burnSkipped) {
-      await repo.addStep({ cycleId: id, name: 'burn', status: 'skipped', detail: { ethWouldSpend: burnEth, minBurnEth: config.minBurnEth, reason: 'below MIN_BURN_ETH — gas would exceed the burn' } });
-    }
-
-    // 6. Dev cut needs no transaction: it is already native ETH in the wallet.
+    // 5. Dev cut needs no transaction: it is already native ETH in the wallet.
 
     await repo.finishCycle(id, {
-      status: 'complete', mode: 'reward-burn', phase,
+      status: 'complete', mode: 'reward', phase,
       eth_claimed: claimed, eth_spent_buy: rewardEth,
-      tokens_bought: reward.tokensBought, tokens_burned: burned, burn_sig: burnSig,
+      tokens_bought: reward.tokensBought,
       eligible_holders: reward.eligibleHolders, total_holders: reward.totalHolders,
       sweep_skipped: sweep.skipped ? 1 : 0, sweep_reason: sweep.reason,
       note: `airdrop sent ${reward.sent}`,
     });
-    log('complete (reward-burn)');
+    log('complete (reward)');
     return repo.getCycleWithSteps(id);
   } catch (err) {
     const message = err && err.message ? err.message : String(err);
@@ -2053,7 +2025,7 @@ Expected: PASS (4 tests)
 
 ```bash
 git add src/jobs/cycle.js src/jobs/cycle.test.js
-git commit -m "Run the sweep-claim-reward-burn cycle with a dust-safe burn leg"
+git commit -m "Run the sweep-claim-reward cycle"
 ```
 
 ---
@@ -2275,9 +2247,7 @@ Port ponsliqui's, replacing the `config` block with the v2 shape and adding phas
         pollSchedule: config.pollSchedule,
         claimEveryEth: config.claimEveryEth,
         rewardBuyPct: config.rewardBuyPct,
-        burnPct: config.burnPct,
         devPct: config.devPct,
-        minBurnEth: config.minBurnEth,
         minHold: config.minHold,
         deadAddress: config.deadAddress,
       },
@@ -2316,7 +2286,7 @@ git commit -m "Add the HTTP surface, SSE stream, and phase-aware status"
 ### Task 15: Operator scripts, env example, and README
 
 **Files:**
-- Create: `scripts/_util.js`, `scripts/check.js`, `scripts/sweep.js`, `scripts/claim.js`, `scripts/buy.js`, `scripts/burn.js`, `scripts/run-once.js`, `.env.example`, `README.md`
+- Create: `scripts/_util.js`, `scripts/check.js`, `scripts/sweep.js`, `scripts/claim.js`, `scripts/buy.js`, `scripts/run-once.js`, `.env.example`, `README.md`
 
 - [ ] **Step 1: Port `scripts/_util.js`**
 
@@ -2340,9 +2310,8 @@ const { config, provider, wallet, hr } = require('./_util');
   console.log('wallet     :', wallet.address, config.walletIsEphemeral ? '⚠️ EPHEMERAL — set WALLET_PRIVATE_KEY' : '');
   console.log('token      :', config.tokenAddress || '⚠️ MISSING — set TOKEN_ADDRESS (BABY ROBBIE)');
   console.log('reward     :', config.rewardToken, `(${config.rewardSymbol} — bought + airdropped)`);
-  console.log('split      :', `${config.rewardBuyPct}% reward / ${config.burnPct}% burn / ${config.devPct}% dev`);
+  console.log('split      :', `${config.rewardBuyPct}% reward / ${config.devPct}% dev`);
   console.log('minHold    :', config.minHold, `${config.tokenSymbol} to qualify`);
-  console.log('minBurnEth :', config.minBurnEth, '(burns below this are skipped as dust)');
 
   hr('WIRING (read from the factory, not trusted from env)');
   const { FACTORY_V2_ABI, HOOK_ABI } = require('../src/evm/abi');
@@ -2421,7 +2390,6 @@ The rest, same shape, differing only in the body:
 - `claim.js` → prints `escrowBalanceEth()`, then `claimFromEscrow()`.
 - `buy.js <eth>` → reads the amount from `process.argv[2]`, then
   `buyToken({ launch, token: config.tokenAddress, ethAmount })`.
-- `burn.js <eth>` → `buyToken(...)` then `burnToken(config.tokenAddress, res.tokensBoughtRaw)`.
 - `run-once.js` → `await db.connect()`, `await runCycle()`, print the returned
   cycle with `JSON.stringify(cycle, null, 2)`, `await db.close()`.
 
@@ -2431,7 +2399,7 @@ Every variable from `config.js`, grouped and commented, with the verified addres
 
 - [ ] **Step 5: Write `README.md`**
 
-Cover: the three-way split diagram, the two phases and why both exist, the `creatorFeeRecipient` requirement (with the note that it is set in `TokenParams` at launch and may differ from the launching wallet), the verified address table, the `InternalSwapRequiresOperator` behaviour, the disperse-contract recommendation, quick start, and the going-live checklist ending in `node scripts/check.js`.
+Cover: the two-way split diagram (80% reward / 20% dev, stating plainly that there is no burn leg), the two phases and why both exist, the `creatorFeeRecipient` requirement (with the note that it is set in `TokenParams` at launch and may differ from the launching wallet), the verified address table, the `InternalSwapRequiresOperator` behaviour, the disperse-contract recommendation, quick start, and the going-live checklist ending in `node scripts/check.js`.
 
 - [ ] **Step 6: Run the full suite and the preflight**
 
@@ -2459,5 +2427,5 @@ Not tasks — the operator's list, in order, once the code is green:
 2. Set `TOKEN_ADDRESS` in `.env`; run `node scripts/check.js` and confirm the `feeRecip.` line shows ✓.
 3. Deploy `Disperse.sol` from `pons-launcher/contracts/` and set `DISPERSE_ADDRESS` before holder count grows.
 4. Fund the wallet with native ETH for gas.
-5. Dust-test live: `node scripts/sweep.js --confirm`, `node scripts/claim.js --confirm`, `node scripts/buy.js 0.001 --confirm`, `node scripts/burn.js 0.001 --confirm`.
+5. Dust-test live: `node scripts/sweep.js --confirm`, `node scripts/claim.js --confirm`, `node scripts/buy.js 0.001 --confirm`.
 6. `node scripts/run-once.js --confirm`, read the cycle, then `DRY_RUN=false npm start`.
