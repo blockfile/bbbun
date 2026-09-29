@@ -1,6 +1,6 @@
 'use strict';
 require('dotenv').config();
-const { Wallet } = require('ethers');
+const { Wallet, isAddress } = require('ethers');
 
 function bool(v, d) { if (v === undefined || v === '') return d; return ['1','true','yes','on'].includes(String(v).toLowerCase()); }
 function num(v, d) { if (v === undefined || v === '') return d; const n = Number(v); return Number.isFinite(n) ? n : d; }
@@ -62,6 +62,28 @@ if (rewardBuyPct + burnPct > 100) {
 // (100 - 80.1 is 19.900000000000006 in FP).
 const devPct = +(100 - rewardBuyPct - burnPct).toFixed(6);
 
+/**
+ * The batch-payout contract, or null for one transfer per holder.
+ *
+ * Refused at startup unless it is a real address. Left unchecked, a leftover
+ * placeholder ("0xYourNewDisperser") reaches ethers, which reads any non-address
+ * string as an ENS name and answers "network does not support ENS" — a message
+ * that says nothing about the actual mistake. Worse, it would surface mid-cycle,
+ * after the fees had already been claimed.
+ */
+function disperseAddress() {
+  const raw = lowerOrNull(process.env.DISPERSE_ADDRESS);
+  if (!raw) return null;
+  if (!isAddress(raw)) {
+    throw new Error(
+      `DISPERSE_ADDRESS is not an address: "${process.env.DISPERSE_ADDRESS}". ` +
+      'Deploy one with `node scripts/deploy-disperser-v2.js --confirm` and paste the address it prints, ' +
+      'or leave DISPERSE_ADDRESS blank to pay holders one transfer at a time.'
+    );
+  }
+  return raw;
+}
+
 // Accumulation by default: a cycle pays one transaction per holder, so firing
 // on every poll would spend most of a small claim on its own gas. The gate is
 // CLAIM_EVERY_USD (see below). "interval" claims whatever has accrued on every
@@ -114,7 +136,7 @@ const config = {
   clusters: parseClusters(process.env.CLUSTERS),
   airdropBatchSize: num(process.env.AIRDROP_BATCH_SIZE, 30),
   airdropGasLimit: num(process.env.AIRDROP_GAS_LIMIT, 120000),
-  disperseAddress: lowerOrNull(process.env.DISPERSE_ADDRESS),
+  disperseAddress: disperseAddress(),
   airdropExclude: (process.env.AIRDROP_EXCLUDE || '').split(',').map((s) => s.trim()).filter(Boolean),
 
   triggerMode,

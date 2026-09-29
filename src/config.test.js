@@ -5,7 +5,7 @@ const assert = require('node:assert');
 // Every split key is cleared on each load: a case that sets REWARD_BUY_PCT
 // would otherwise leave it in the environment and make later cases fail for a
 // reason that has nothing to do with what they test.
-const SPLIT_KEYS = ['REWARD_BUY_PCT', 'BURN_PCT', 'MIN_REWARD_ETH', 'TRIGGER_MODE', 'CLAIM_EVERY_USD', 'CLAIM_EVERY_ETH'];
+const SPLIT_KEYS = ['REWARD_BUY_PCT', 'BURN_PCT', 'MIN_REWARD_ETH', 'TRIGGER_MODE', 'CLAIM_EVERY_USD', 'CLAIM_EVERY_ETH', 'DISPERSE_ADDRESS'];
 
 function loadConfig(env) {
   for (const k of SPLIT_KEYS) if (!(k in env)) delete process.env[k];
@@ -94,4 +94,21 @@ test('ships the verified v2 addresses as defaults', () => {
   assert.strictEqual(c.v2Factory, '0x7ed598bcef8bd9edd8c97a195c6d13f40801ec7e');
   assert.strictEqual(c.memeHook, '0xe5e702641ea86f4ae6cc3cdaed2b886f976be044');
   assert.strictEqual(c.feeEscrow, '0xd3afeb2a57f70ef218aa82451c51b2fb0416ac9e');
+});
+
+test('a placeholder DISPERSE_ADDRESS is refused at startup, by name', () => {
+  // Left unchecked this reaches ethers, which treats any non-address string as
+  // an ENS name and reports "network does not support ENS" — mid-cycle, after
+  // the fees have already been claimed.
+  assert.throws(
+    () => loadConfig({ DRY_RUN: 'true', DISPERSE_ADDRESS: '0xYourNewDisperser' }),
+    /DISPERSE_ADDRESS is not an address.*deploy-disperser-v2/s
+  );
+  assert.throws(() => loadConfig({ DRY_RUN: 'true', DISPERSE_ADDRESS: '0x1234' }), /not an address/);
+});
+
+test('a blank DISPERSE_ADDRESS is fine: holders are paid one transfer each', () => {
+  assert.strictEqual(loadConfig({ DRY_RUN: 'true', DISPERSE_ADDRESS: '' }).disperseAddress, null);
+  const real = '0x0263Da0f8D6B2ae57c7F19bF02B84689307bA7D8';
+  assert.strictEqual(loadConfig({ DRY_RUN: 'true', DISPERSE_ADDRESS: real }).disperseAddress, real.toLowerCase());
 });
