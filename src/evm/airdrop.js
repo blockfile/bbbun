@@ -60,10 +60,41 @@ async function airdropToken({ rewardToken, allocations, cycleId }) {
   return pipelineAirdrop({ rewardToken, allocations, record });
 }
 
+/**
+ * Pure: may the disperser pull `total` from this wallet, and if not, why?
+ *
+ * Checked ONCE before the batches. The alternative is what happened on
+ * 2026-09-30: all 86 payouts reverted with PullFailed, and the log filled with
+ * kilobytes of undecoded calldata naming neither the cause nor the fix. The
+ * approval existed — but from a DIFFERENT wallet, because the key had been
+ * changed since. The disperser pulls from whoever calls it, so only the
+ * calling wallet's allowance counts.
+ *
+ * @returns {string|null} the operator-facing reason to stop, or null to proceed
+ */
+function allowanceProblem({ allowance, total, owner, spender, symbol }) {
+  if (BigInt(allowance) >= BigInt(total)) return null;
+  return (
+    `the disperser ${spender} may pull ${allowance} of ${symbol} from ${owner}, but this airdrop needs ${total}. ` +
+    'Only the CALLING wallet\'s allowance counts, so an approval made from another wallet does not help — ' +
+    'the usual cause after WALLET_PRIVATE_KEY changes. Fix it with:  DRY_RUN=false npm run approve-disperse -- --confirm'
+  );
+}
+
 // One disperseToken tx per batch (nonce-safe via sendTx). A whole batch shares a
 // tx, so a batch either lands for everyone in it or is recorded failed together.
 async function disperseAirdrop({ rewardToken, allocations, record }) {
   const disperse = new Contract(config.disperseAddress, DISPERSE_ABI, wallet);
+
+  // One read before any batch: a missing allowance is an operator problem with
+  // an exact fix, not N identical reverts.
+  const total = allocations.reduce((sum, a) => sum + BigInt(a.amountRaw), 0n);
+  const allowance = await erc20(rewardToken).allowance(wallet.address, config.disperseAddress);
+  const problem = allowanceProblem({
+    allowance, total, owner: wallet.address, spender: config.disperseAddress, symbol: config.rewardSymbol,
+  });
+  if (problem) throw new Error(problem);
+
   let sent = 0;
   let failed = 0;
   for (const batch of chunk(allocations, config.airdropBatchSize)) {
@@ -167,4 +198,4 @@ async function pipelineAirdrop({ rewardToken, allocations, record }) {
   return { sent, failed };
 }
 
-module.exports = { airdropToken, chunk };
+module.exports = { airdropToken, chunk, allowanceProblem };
