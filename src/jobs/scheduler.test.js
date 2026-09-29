@@ -148,3 +148,57 @@ test('start() uses cron.validate to reject invalid schedules', () => {
   // If config.pollSchedule were invalid, start() would throw. Since config is validated on load,
   // we verify the validation logic itself works here.
 });
+
+// ── The accumulation gate is set in DOLLARS ─────────────────────────────────
+//
+// A cycle pays one transaction per holder, so the gate exists to stop a claim
+// being spent on its own gas. The operator sets $100; the ETH gate is the
+// fallback for a missing price, because unclaimed fees keep accruing and a
+// price outage must not hold them forever.
+
+test('the dollar gate fires only once the claim is worth CLAIM_EVERY_USD', () => {
+  const { accumulationGate } = require('./scheduler');
+  const gate = { claimEveryUsd: 100, claimEveryEth: 0.005, ethUsd: 2750 };
+  const under = accumulationGate({ claimable: 0.03, ...gate }); // $82.50
+  assert.strictEqual(under.fire, false);
+  assert.match(under.reason, /\$82\.50 < \$100/);
+  const over = accumulationGate({ claimable: 0.04, ...gate }); // $110
+  assert.strictEqual(over.fire, true);
+  assert.ok(Math.abs(over.usd - 110) < 1e-9);
+});
+
+test('without an ETH price it falls back to the ETH gate, and says so', () => {
+  const { accumulationGate } = require('./scheduler');
+  const gate = { claimEveryUsd: 100, claimEveryEth: 0.005, ethUsd: null };
+  const under = accumulationGate({ claimable: 0.004, ...gate });
+  assert.strictEqual(under.fire, false);
+  assert.match(under.reason, /no ETH price, using the ETH gate/);
+  const over = accumulationGate({ claimable: 0.006, ...gate });
+  assert.strictEqual(over.fire, true);
+  assert.strictEqual(over.usd, null, 'no dollar figure without a price — never a guess');
+});
+
+test('with the dollar gate off, only the ETH gate applies', () => {
+  const { accumulationGate } = require('./scheduler');
+  const g = accumulationGate({ claimable: 0.006, claimEveryUsd: 0, claimEveryEth: 0.005, ethUsd: 2750 });
+  assert.strictEqual(g.fire, true);
+  assert.doesNotMatch(g.reason, /\$/);
+});
+
+test('a poll below the dollar gate runs no cycle', async () => {
+  const scheduler = require('./scheduler');
+  scheduler._resetState();
+  let ran = 0;
+  const out = await scheduler.pollOnce('test', {
+    dryRun: true,
+    triggerMode: 'accumulation',
+    claimEveryUsd: 100,
+    claimEveryEth: 999,
+    getEthPriceUsd: async () => 2750,
+    escrowBalanceEth: async () => 0.01, // $27.50
+    runCycle: async () => { ran += 1; return { id: 1, status: 'complete' }; },
+  });
+  assert.strictEqual(out.ran, false);
+  assert.strictEqual(ran, 0);
+  assert.match(out.reason, /below accumulation threshold \(\$27\.50 < \$100\)/);
+});

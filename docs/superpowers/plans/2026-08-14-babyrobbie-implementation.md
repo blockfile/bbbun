@@ -1,5 +1,10 @@
 # babyrobbie Implementation Plan
 
+> **Inherited from babyrobbie.** This document records how the parent bot
+> (BABY ROBBIE / ROBBIE) was designed and built. BBBUN forked it on 2026-09-29
+> and pays BUN to BABYBUNDLECAT holders, with a buyback+burn leg the parent
+> never had. Names below are the parent's, deliberately left unchanged.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a bot that claims BABY ROBBIE's pons v2 creator fees and recycles them into buying ROBBIE for a pro-rata airdrop to BABY ROBBIE holders, and a dev cut.

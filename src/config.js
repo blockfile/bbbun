@@ -16,7 +16,7 @@ function parseClusters(value) {
       .map((g) => g.filter((a) => typeof a === 'string' && a.trim()).map((a) => a.trim()))
       .filter((g) => g.length > 0);
   } catch (_err) {
-    console.warn('[babyrobbie] CLUSTERS is not valid JSON — ignoring');
+    console.warn('[bbbun] CLUSTERS is not valid JSON — ignoring');
     return [];
   }
 }
@@ -38,16 +38,36 @@ function loadWallet() {
 }
 const { wallet, ephemeral: walletIsEphemeral } = loadWallet();
 
-const rewardBuyPct = num(process.env.REWARD_BUY_PCT, 80);
+// Each claim (native ETH) splits three ways:
+//
+//   REWARD_BUY_PCT  70  buys BUN and airdrops it to BABYBUNDLECAT holders
+//   BURN_PCT        20  buys BABYBUNDLECAT and sends it to 0x…dEaD
+//   remainder       10  the dev cut + gas — already native ETH in the wallet,
+//                       so it needs no transaction at all
+const rewardBuyPct = num(process.env.REWARD_BUY_PCT, 70);
 if (!(rewardBuyPct >= 0 && rewardBuyPct <= 100)) {
   throw new Error(`invalid split: REWARD_BUY_PCT(${rewardBuyPct}) must be within [0, 100]`);
 }
-// The dev cut is defined as the remainder. toFixed(6) keeps a fractional reward
-// share from leaving float dust behind (100 - 80.1 is 19.900000000000006 in FP).
-const devPct = +(100 - rewardBuyPct).toFixed(6);
+const burnPct = num(process.env.BURN_PCT, 20);
+if (!(burnPct >= 0 && burnPct <= 100)) {
+  throw new Error(`invalid split: BURN_PCT(${burnPct}) must be within [0, 100]`);
+}
+if (rewardBuyPct + burnPct > 100) {
+  throw new Error(
+    `invalid split: REWARD_BUY_PCT(${rewardBuyPct}) + BURN_PCT(${burnPct}) = ${rewardBuyPct + burnPct} exceeds 100`
+  );
+}
+// The dev cut is defined as the remainder, so the legs can never disagree with
+// the claim. toFixed(6) keeps a fractional share from leaving float dust behind
+// (100 - 80.1 is 19.900000000000006 in FP).
+const devPct = +(100 - rewardBuyPct - burnPct).toFixed(6);
 
-const triggerMode = ['interval', 'accumulation'].includes(String(process.env.TRIGGER_MODE || 'interval').toLowerCase())
-  ? String(process.env.TRIGGER_MODE || 'interval').toLowerCase() : 'interval';
+// Accumulation by default: a cycle pays one transaction per holder, so firing
+// on every poll would spend most of a small claim on its own gas. The gate is
+// CLAIM_EVERY_USD (see below). "interval" claims whatever has accrued on every
+// poll, and is what the parent bot ran.
+const triggerMode = ['interval', 'accumulation'].includes(String(process.env.TRIGGER_MODE || 'accumulation').toLowerCase())
+  ? String(process.env.TRIGGER_MODE || 'accumulation').toLowerCase() : 'accumulation';
 
 const config = {
   port: num(process.env.PORT, 3000),
@@ -69,11 +89,12 @@ const config = {
   v4Quoter: lowerOr(process.env.V4_QUOTER, '0x5c3db48cfd8352d845fac70009d714f0ce1d7914'),
 
   tokenAddress: lowerOrNull(process.env.TOKEN_ADDRESS),
-  tokenSymbol: process.env.TOKEN_SYMBOL || 'BABYROBBIE',
-  rewardToken: lowerOr(process.env.REWARD_TOKEN, '0xe0eba1b76b73be7bfa7716b6ca96f724930e2263'),
-  rewardSymbol: process.env.REWARD_SYMBOL || 'ROBBIE',
+  tokenSymbol: process.env.TOKEN_SYMBOL || 'BBC',
+  rewardToken: lowerOr(process.env.REWARD_TOKEN, '0x07ebb29a38fbcb41563817e5e19f2cec619c90d2'),
+  rewardSymbol: process.env.REWARD_SYMBOL || 'BUN',
 
   rewardBuyPct,
+  burnPct,
   devPct,
   // Floor for the reward leg. Below this the buy+airdrop is skipped cleanly for
   // the cycle — the dust stays in the wallet as native ETH — instead of being
@@ -83,6 +104,10 @@ const config = {
   slippagePct: num(process.env.SLIPPAGE_PCT, 5),
   gasReserveEth: num(process.env.GAS_RESERVE_ETH, 0.005),
   deadAddress: lowerOr(process.env.DEAD_ADDRESS, '0x000000000000000000000000000000000000dead'),
+
+  // What was MINTED, for the burned-share figure. A dead-address burn leaves
+  // totalSupply untouched, so this is the denominator; pons v2 launches mint 1B.
+  tokenTotalSupply: num(process.env.TOKEN_TOTAL_SUPPLY, 1_000_000_000),
 
   minHold: num(process.env.MIN_HOLD, 100000),
   rewardCapPct: num(process.env.REWARD_CAP_PCT, 0),
@@ -94,12 +119,17 @@ const config = {
 
   triggerMode,
   pollSchedule: process.env.POLL_SCHEDULE || '*/5 * * * *',
+  // Accumulation gate. CLAIM_EVERY_USD is the one the operator thinks in, and
+  // it holds its meaning as ETH's price moves; CLAIM_EVERY_ETH is the fallback
+  // used when the USD gate is off (0) or the ETH price is briefly unavailable,
+  // so a price outage can never stop payouts for good.
+  claimEveryUsd: Math.max(0, num(process.env.CLAIM_EVERY_USD, 100)),
   claimEveryEth: num(process.env.CLAIM_EVERY_ETH, 0.005),
   dryRunFeePerPoll: num(process.env.DRY_RUN_FEE_PER_POLL, 0.01),
 
   dexscreenerChainId: process.env.DEXSCREENER_CHAIN_ID || 'robinhood',
   mongoUri: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017',
-  mongoDb: process.env.MONGODB_DB || 'babyrobbie',
+  mongoDb: process.env.MONGODB_DB || 'bbbun',
   corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:5173').split(',').map((s) => s.trim()).filter(Boolean),
   apiKey: process.env.API_KEY || null,
 };

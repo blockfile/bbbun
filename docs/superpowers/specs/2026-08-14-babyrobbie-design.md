@@ -1,5 +1,10 @@
 # babyrobbie — design
 
+> **Inherited from babyrobbie.** This document records how the parent bot
+> (BABY ROBBIE / ROBBIE) was designed and built. BBBUN forked it on 2026-09-29
+> and pays BUN to BABYBUNDLECAT holders, with a buyback+burn leg the parent
+> never had. Names below are the parent's, deliberately left unchanged.
+
 **Creator-fee reward bot for a pons v2 token on Robinhood Chain (Uniswap v4).**
 
 Date: 2026-08-14

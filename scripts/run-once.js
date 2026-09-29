@@ -1,5 +1,5 @@
 'use strict';
-// Run ONE full cycle (sweep -> claim -> split -> buy ROBBIE -> airdrop) and
+// Run ONE full cycle (sweep -> claim -> split -> buy BUN -> airdrop) and
 // print the persisted result. The integration test.
 //   node scripts/run-once.js [--confirm]
 const { hr, requireConfirm } = require('./_util');
@@ -8,7 +8,7 @@ const { runCycle } = require('../src/jobs/cycle');
 
 (async () => {
   hr('RUN ONE FULL CYCLE');
-  if (!(await requireConfirm('run one full cycle (sweep -> claim -> buy ROBBIE -> airdrop to BABY ROBBIE holders)'))) {
+  if (!(await requireConfirm('run one full cycle (sweep -> claim -> buy BUN -> airdrop to BABYBUNDLECAT holders)'))) {
     process.exit(0);
   }
   await db.connect();

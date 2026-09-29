@@ -1,8 +1,8 @@
 {
-  "name": "babyrobbie",
+  "name": "bbbun",
   "version": "0.1.0",
   "private": true,
-  "description": "pons v2 reward bot on Robinhood Chain: recycles BABY ROBBIE creator fees into buying + airdropping ROBBIE to holders, and a dev cut (DRY_RUN first).",
+  "description": "pons v2 reward bot on Robinhood Chain: recycles BABYBUNDLECAT creator fees into buying + airdropping BUN to holders, buying BABYBUNDLECAT back and burning it, and a dev cut (DRY_RUN first).",
   "type": "commonjs",
   "main": "server.js",
   "scripts": {

@@ -42,7 +42,7 @@ test('a stored airdrop maps to the field names the site parses', () => {
   const row = toRewardRow({
     id: 7,
     cycle_id: 3,
-    reward_token: '0xe0eba1b76b73be7bfa7716b6ca96f724930e2263',
+    reward_token: '0x07ebb29a38fbcb41563817e5e19f2cec619c90d2',
     recipient: '0x267444D099b10fB5Ed7c3Cc7B7c767AdcA574952',
     amount_raw: '128400000000000000000000',
     amount_ui: 128400,
@@ -87,4 +87,32 @@ test('?limit= is clamped and falls back safely', () => {
   assert.strictEqual(parseLimit('-5'), FEED_LIMIT, 'negative -> default');
   assert.strictEqual(parseLimit('250'), 250, 'in range -> honoured');
   assert.strictEqual(parseLimit('999999'), FEED_LIMIT_MAX, 'oversized -> capped');
+});
+
+// ── GET /api/stats: what the site shows ─────────────────────────────────────
+
+test('stats carry the BUN paid out, the BBC burned, and what the burn cost', () => {
+  const { buildStats } = require('./frontend');
+  const s = buildStats({
+    market: { marketCap: 22_000 },
+    reward: { totalUi: 1234.5 },
+    totals: { total_tokens_burned: 10_000_000, total_eth_spent_burn: 0.42 },
+  });
+  assert.strictEqual(s.market_cap_usd, 22_000);
+  assert.strictEqual(s.total_bun_distributed, 1234.5);
+  assert.strictEqual(s.total_bbc_burned, 10_000_000);
+  assert.strictEqual(s.burned_pct_of_supply, 1); // 10M of the 1B mint
+  assert.strictEqual(s.eth_spent_burning, 0.42);
+  assert.ok(Date.parse(s.updated_at) > 0);
+});
+
+test('before anything has happened every figure is 0, not null', () => {
+  // The panel renders numbers; a null would show as an empty tile, and "no
+  // cycles yet" and "a real zero" would become indistinguishable downstream.
+  const { buildStats } = require('./frontend');
+  const s = buildStats({});
+  assert.strictEqual(s.market_cap_usd, 0);
+  assert.strictEqual(s.total_bun_distributed, 0);
+  assert.strictEqual(s.total_bbc_burned, 0);
+  assert.strictEqual(s.burned_pct_of_supply, 0);
 });

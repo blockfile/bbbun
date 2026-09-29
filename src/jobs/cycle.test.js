@@ -2,7 +2,8 @@
 const test = require('node:test');
 const assert = require('node:assert');
 process.env.DRY_RUN = 'true';
-process.env.REWARD_BUY_PCT = '80';
+process.env.REWARD_BUY_PCT = '70';
+process.env.BURN_PCT = '20';
 delete require.cache[require.resolve('../config')];
 
 const {
@@ -12,30 +13,33 @@ const {
   feeRecipientWarning,
 } = require('./cycle');
 
-test('splits a claim 80 / 20', () => {
+test('splits a claim 70 / 20 / 10', () => {
   const s = splitClaim(1);
-  assert.strictEqual(s.rewardEth, 0.8);
-  assert.strictEqual(s.devEth, 0.2);
+  assert.strictEqual(s.rewardEth, 0.7);
+  assert.strictEqual(s.burnEth, 0.2);
+  assert.strictEqual(s.devEth, 0.1);
 });
 
-test('the two legs always re-add to the claim', () => {
+test('the three legs always re-add to the claim', () => {
   for (const claim of [0.001, 0.5, 1, 3.14159, 21.368470124]) {
     const s = splitClaim(claim);
-    const total = s.rewardEth + s.devEth;
+    const total = s.rewardEth + s.burnEth + s.devEth;
     assert.ok(Math.abs(total - claim) < 1e-9, `claim ${claim} lost ${claim - total}`);
+    assert.ok(s.devEth >= 0, 'the remainder can never go negative');
   }
 });
 
 test('a zero claim produces zero legs', () => {
   const s = splitClaim(0);
   assert.strictEqual(s.rewardEth, 0);
+  assert.strictEqual(s.burnEth, 0);
   assert.strictEqual(s.devEth, 0);
 });
 
 // ── How a cycle finishes (I1) ───────────────────────────────────────────────
 // `sent === 0` has two completely different meanings and they must not be
 // recorded the same way: nobody was eligible (fine) vs. the airdrop reached
-// nobody (the ROBBIE is stranded and every later cycle buys more).
+// nobody (the BUN is stranded and every later cycle buys more).
 test('an airdrop that reached NOBODY fails the cycle, naming the likely cause', () => {
   const o = summarizeReward({ recipients: 42, sent: 0, failed: 42 });
   assert.strictEqual(o.status, 'failed');
@@ -97,9 +101,16 @@ test('a missing creatorFeeRecipient is a mismatch, not a pass', () => {
 
 // The burn leg was removed from this project by decision. DRY_RUN would happily
 // simulate one, so the absence is asserted at the source level instead.
-test('the cycle has no burn leg at all', () => {
+test('the burn leg runs AFTER holders are paid, and cannot fail the cycle', () => {
+  // Order matters: the escrow is already claimed and the airdrop already out by
+  // the time BBC is bought, so a failed buy costs holders nothing. buyAndBurn
+  // never throws (see evm/burn.js), and its step is recorded either way.
   const fs = require('node:fs');
   const path = require('node:path');
   const src = fs.readFileSync(path.join(__dirname, 'cycle.js'), 'utf8');
-  assert.doesNotMatch(src, /burnToken|deadAddress|burnPct/, 'the burn leg was removed by design');
+  const rewardAt = src.indexOf('runRewardLeg(id');
+  const burnAt = src.indexOf('buyAndBurn({');
+  assert.ok(rewardAt > 0 && burnAt > rewardAt, 'the burn leg must come after the reward leg');
+  assert.match(src, /name: 'burn'/, 'the burn is recorded as its own step');
+  assert.doesNotMatch(src, /await buyAndBurn\([^)]*\)\.catch/, 'no catch needed: buyAndBurn never throws');
 });

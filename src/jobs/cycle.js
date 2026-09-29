@@ -4,10 +4,9 @@
 //
 //   sweep pending fees into the escrow      (best-effort — may need pons's operator)
 //   claim the escrow                        -> native ETH
-//     -> REWARD_BUY_PCT: buy ROBBIE and airdrop it to BABY ROBBIE holders
+//     -> REWARD_BUY_PCT: buy BUN and airdrop it to BABYBUNDLECAT holders
+//     -> BURN_PCT:       buy BABYBUNDLECAT and send it to 0x…dEaD
 //     -> remainder:      stays in the wallet as native ETH (dev cut + gas)
-//
-// There is deliberately NO burn leg: nothing here buys or burns BABY ROBBIE.
 //
 // Each step is recorded; a thrown step fails the cycle without crashing.
 
@@ -22,16 +21,21 @@ const { snapshotEligibleHolders } = require('../evm/holders');
 const { buildExcludeSet } = require('../evm/exclude');
 const { computeWeightedAllocations } = require('../services/distribution');
 const { airdropToken } = require('../evm/airdrop');
+const { buyAndBurn, describeBurn } = require('../evm/burn');
 
 /**
- * Split a claim into its two legs. Pure, so the invariant that the legs re-add
+ * Split a claim into its three legs. Pure, so the invariant that the legs re-add
  * to the claim is directly testable. The dev cut is the remainder and needs no
  * transaction — it is already native ETH sitting in the wallet.
  */
 function splitClaim(claimedEth) {
   const rewardEth = +(claimedEth * (config.rewardBuyPct / 100)).toFixed(9);
-  const devEth = +(claimedEth - rewardEth).toFixed(9);
-  return { rewardEth, devEth };
+  const burnEth = +(claimedEth * (config.burnPct / 100)).toFixed(9);
+  // The dev cut is the REMAINDER, so the three legs always re-add to the claim
+  // even when the percentages are fractional. Never negative: config refuses a
+  // reward + burn share above 100.
+  const devEth = +Math.max(0, claimedEth - rewardEth - burnEth).toFixed(9);
+  return { rewardEth, burnEth, devEth };
 }
 
 /**
@@ -136,8 +140,8 @@ async function runCycle() {
   const log = (msg) => console.log(`[cycle ${id}] ${msg}`);
 
   try {
-    if (!config.tokenAddress) throw new Error('TOKEN_ADDRESS (BABY ROBBIE) is required');
-    if (!config.rewardToken) throw new Error('REWARD_TOKEN (ROBBIE) is required');
+    if (!config.tokenAddress) throw new Error('TOKEN_ADDRESS (BABYBUNDLECAT) is required');
+    if (!config.rewardToken) throw new Error('REWARD_TOKEN (BUN) is required');
 
     const launch = await getLaunch();
     const phase = describePhase(launch);
@@ -180,8 +184,12 @@ async function runCycle() {
     }
 
     // 3. Split.
-    const { rewardEth, devEth } = splitClaim(claimed);
-    log(`split: ${rewardEth} -> ${config.rewardSymbol} reward (${config.rewardBuyPct}%), keep ${devEth} for dev/gas`);
+    const { rewardEth, burnEth, devEth } = splitClaim(claimed);
+    log(
+      `split: ${rewardEth} -> ${config.rewardSymbol} reward (${config.rewardBuyPct}%), ` +
+      `${burnEth} -> buy ${config.tokenSymbol} and burn (${config.burnPct}%), ` +
+      `keep ${devEth} for dev/gas (${config.devPct}%)`
+    );
 
     // 4. Reward leg. The reward token is already graduated, so it always
     //    trades on v4 regardless of which phase OUR token is in.
@@ -208,12 +216,38 @@ async function runCycle() {
       log(`reward leg skipped: ${reason}`);
     }
 
-    // 5. Dev cut needs no transaction: it is already native ETH in the wallet.
+    // 5. Burn leg: buy BBC with the burn share and send it to 0x…dEaD.
+    //    Runs AFTER holders are paid and never fails the cycle — by this point
+    //    the escrow is claimed and the airdrop is out, so a failed buy just
+    //    leaves that ETH in the wallet for a later cycle.
+    const burn = await buyAndBurn({ launch, ethAmount: burnEth });
+    await repo.addStep({
+      cycleId: id,
+      name: 'burn',
+      status: burn.burned ? 'ok' : burn.skipped ? 'skipped' : 'failed',
+      signature: burn.burnSignature || burn.buySignature,
+      detail: {
+        ethSpent: burn.skipped ? 0 : burnEth,
+        tokensBurned: burn.tokensBurned,
+        tokensBurnedRaw: burn.tokensBurnedRaw,
+        bought: burn.bought,
+        burned: burn.burned,
+        venue: burn.venue,
+        deadAddress: config.deadAddress,
+        reason: burn.reason,
+        error: burn.error,
+      },
+    });
+    log(describeBurn(burn));
+
+    // 6. Dev cut needs no transaction: it is already native ETH in the wallet.
 
     const outcome = summarizeReward(reward);
     await repo.finishCycle(id, {
       status: outcome.status, mode: 'reward', phase,
       eth_claimed: claimed, eth_spent_buy: reward.skipped ? 0 : rewardEth,
+      eth_spent_burn: burn.burned ? burnEth : 0,
+      tokens_burned: burn.burned ? burn.tokensBurned : 0,
       tokens_bought: reward.tokensBought,
       eligible_holders: reward.eligibleHolders, total_holders: reward.totalHolders,
       sweep_skipped: sweep.skipped ? 1 : 0, sweep_reason: sweep.reason,

@@ -36,9 +36,9 @@ app.use(express.json());
 
 app.get('/', (req, res) => {
   res.json({
-    name: 'babyrobbie',
+    name: 'bbbun',
     description:
-      'pons v2 BABY ROBBIE creator fees → buy ROBBIE + airdrop to BABY ROBBIE holders / dev cut (Robinhood Chain)',
+      'pons v2 BABYBUNDLECAT creator fees → buy BUN + airdrop to BABYBUNDLECAT holders / dev cut (Robinhood Chain)',
     dryRun: config.dryRun,
     chainId: config.chainId,
     wallet: walletAddress(),
@@ -48,8 +48,8 @@ app.get('/', (req, res) => {
       'GET  /summary',
       'GET  /accrual',
       'GET  /countdown',
-      'GET  /api/stats (babyrobbie.com)',
-      'GET  /api/rewards (babyrobbie.com)',
+      'GET  /api/stats (bbbun.com)',
+      'GET  /api/rewards (bbbun.com)',
       'GET  /api/status',
       'GET  /api/unclaimed',
       'GET  /api/stream (SSE live push)',
@@ -64,7 +64,7 @@ app.get('/', (req, res) => {
   });
 });
 
-// The babyrobbie.com site's contract (GET /api/stats, /api/rewards). Mounted
+// The bbbun.com site's contract (GET /api/stats, /api/rewards). Mounted
 // first so its shapes are unambiguous — the other /api routers use different
 // path names, so order is not load-bearing, but the grouping documents intent.
 app.use('/api', siteRoutes);
@@ -90,11 +90,11 @@ app.use((err, req, res, next) => {
     const origin = req.get('origin') || 'unknown';
     if (!loggedBlockedOrigins.has(origin)) {
       loggedBlockedOrigins.add(origin);
-      console.warn(`[babyrobbie] blocking CORS origin: ${origin}`);
+      console.warn(`[bbbun] blocking CORS origin: ${origin}`);
     }
     return res.status(403).json({ error: 'origin not allowed' });
   }
-  console.error('[babyrobbie] request error:', err);
+  console.error('[bbbun] request error:', err);
   res.status(500).json({ error: err.message });
 });
 
@@ -102,22 +102,22 @@ let server;
 
 async function main() {
   await db.connect();
-  console.log(`[babyrobbie] MongoDB connected (${config.mongoDb})`);
+  console.log(`[bbbun] MongoDB connected (${config.mongoDb})`);
 
   getEthPriceUsd().catch(() => {}); // warm the price cache for USD values
 
   server = app.listen(config.port, () => {
-    console.log(`[babyrobbie] listening on http://localhost:${config.port}`);
-    console.log(`[babyrobbie] dryRun=${config.dryRun} chainId=${config.chainId} wallet=${walletAddress()}`);
+    console.log(`[bbbun] listening on http://localhost:${config.port}`);
+    console.log(`[bbbun] dryRun=${config.dryRun} chainId=${config.chainId} wallet=${walletAddress()}`);
     if (config.walletIsEphemeral) {
-      console.log('[babyrobbie] WARNING: using an ephemeral wallet (no WALLET_PRIVATE_KEY set) — dry run only');
+      console.log('[bbbun] WARNING: using an ephemeral wallet (no WALLET_PRIVATE_KEY set) — dry run only');
     }
     scheduler.start();
   });
 }
 
 async function shutdown(signal) {
-  console.log(`\n[babyrobbie] ${signal} received, shutting down`);
+  console.log(`\n[bbbun] ${signal} received, shutting down`);
   if (server) server.close();
   await db.close();
   process.exit(0);
@@ -126,7 +126,7 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 main().catch((err) => {
-  console.error('[babyrobbie] failed to start:', err);
+  console.error('[bbbun] failed to start:', err);
   process.exit(1);
 });
 

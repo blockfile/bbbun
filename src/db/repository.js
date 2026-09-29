@@ -43,7 +43,7 @@ async function finishCycle(id, fields) {
   const db = getDb();
   const allowed = [
     'status', 'mode', 'phase', 'eth_claimed', 'eth_spent_buy',
-    'tokens_bought',
+    'tokens_bought', 'eth_spent_burn', 'tokens_burned',
     'eligible_holders', 'total_holders',
     'sweep_skipped', 'sweep_reason',
     'note', 'error',
@@ -128,6 +128,8 @@ async function getStats() {
           skipped: { $sum: { $cond: [{ $eq: ['$status', 'skipped'] }, 1, 0] } },
           total_eth_spent_buy: { $sum: { $ifNull: ['$eth_spent_buy', 0] } },
           total_tokens_bought: { $sum: { $ifNull: ['$tokens_bought', 0] } },
+          total_eth_spent_burn: { $sum: { $ifNull: ['$eth_spent_burn', 0] } },
+          total_tokens_burned: { $sum: { $ifNull: ['$tokens_burned', 0] } },
         },
       },
     ])
@@ -152,6 +154,8 @@ async function getStats() {
       skipped: 0,
       total_eth_spent_buy: 0,
       total_tokens_bought: 0,
+      total_eth_spent_burn: 0,
+      total_tokens_burned: 0,
     }),
     total_eth_claimed: claimRow ? claimRow.eth : 0,
   };

@@ -38,7 +38,7 @@ router.get('/cycles/:id', async (req, res, next) => {
   }
 });
 
-// GET /api/airdrops?limit=&offset=&token=  — paginated ROBBIE airdrop history
+// GET /api/airdrops?limit=&offset=&token=  — paginated BUN airdrop history
 router.get('/airdrops', async (req, res, next) => {
   try {
     const limit = clamp(req.query.limit, 50, 1, 500);

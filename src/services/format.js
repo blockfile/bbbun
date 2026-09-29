@@ -119,10 +119,10 @@ function toPublicStats({ stats, unclaimedEth, operatingWallet, market = {}, aird
     marketCap: market.marketCap ?? null, // USD market cap (DexScreener); null until listed
     unclaimedFeesEth: unclaimedEth == null ? null : +unclaimedEth.toFixed(9),
     totalCreatorFeesClaimed: stats.total_eth_claimed,
-    // ETH spent buying ROBBIE (reward).
+    // ETH spent buying BUN (reward).
     ethSpentBuying: +(stats.total_eth_spent_buy || 0).toFixed(9),
     tokensBought: stats.total_tokens_bought || 0,
-    // ROBBIE reward airdrop headline.
+    // BUN reward airdrop headline.
     rewardsDistributed: air.rewardsDistributed,
     rewardHolders: air.rewardHolders,
     airdrops: airdropTotals,

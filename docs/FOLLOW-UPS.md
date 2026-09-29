@@ -40,7 +40,7 @@ consciously left. Recorded here so they are not lost with the build scratch.
 
 ## Testing gaps
 
-- **No live-chain integration test.** The v4 path is validated against ROBBIE's
+- **No live-chain integration test.** The v4 path was validated against bbbun's own reward token (BUN, 0xe0eb…2263) and its
   real pool only through the `poolId` derivation assertion; the curve path has no
   committed live fixture. The spec's open-risk note suggested resolving an
   unbonded curve dynamically from recent `TokenLaunched` events — that was done

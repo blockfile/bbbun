@@ -1,6 +1,6 @@
 'use strict';
 
-// Endpoints for the babyrobbie.com site (the `tokenmeme6` frontend).
+// Endpoints for the bbbun.com site (the `tokenmeme6` frontend).
 //
 // The field names here are NOT ours to choose — they are what that site's
 // parsers read (`src/api/stats.js`, `src/api/rewards.js`). Renaming a key
@@ -13,6 +13,7 @@
 
 const express = require('express');
 const config = require('../config');
+const { burnedPctOfSupply } = require('../evm/burn');
 const repo = require('../db/repository');
 const { getMarketData } = require('../services/marketdata');
 const { nextRun } = require('../services/countdown');
@@ -79,22 +80,39 @@ function toRewardRow(row) {
   };
 }
 
+/**
+ * Pure: the headline numbers, in the shape the site reads.
+ *
+ * Every field is a NUMBER, never null: the site coerces non-finite values to 0
+ * anyway, so one way of saying "nothing yet" beats two.
+ */
+function buildStats({ market = {}, reward = {}, totals = {} }) {
+  const burned = totals.total_tokens_burned ?? 0;
+  return {
+    // 0 until the token is listed on DexScreener.
+    market_cap_usd: market.marketCap ?? 0,
+    total_bun_distributed: reward.totalUi ?? 0,
+    // BABYBUNDLECAT bought with the burn share and sent to 0x…dEaD: out of
+    // circulation for good, though totalSupply itself does not move.
+    total_bbc_burned: burned,
+    burned_pct_of_supply: burnedPctOfSupply(burned, config.tokenTotalSupply) ?? 0,
+    eth_spent_burning: totals.total_eth_spent_burn ?? 0,
+    updated_at: new Date().toISOString(),
+  };
+}
 const loadStats = cached(15000, async () => {
-  const [market, reward] = await Promise.all([
+  const [market, reward, totals] = await Promise.all([
     getMarketData().catch(() => ({ marketCap: null })),
     // getDistributedTotal, NOT getAirdropTotals: the latter counts simulated
     // DRY_RUN payouts too (they carry status 'ok'), which would inflate the
     // headline number the site shows visitors.
     repo.getDistributedTotal(config.rewardToken).catch(() => ({})),
+    // Burn totals come from the CYCLES, which only record a burn that actually
+    // landed on chain; a failed transfer leaves the tokens in the wallet and is
+    // deliberately not counted as burned.
+    repo.getStats().catch(() => ({})),
   ]);
-
-  return {
-    // Null until the token is listed on DexScreener. The site coerces
-    // non-finite to 0, so send a number and keep the contract boring.
-    market_cap_usd: market.marketCap ?? 0,
-    total_robbie_distributed: reward.totalUi ?? 0,
-    updated_at: new Date().toISOString(),
-  };
+  return buildStats({ market, reward, totals });
 });
 
 // GET /api/stats — headline numbers for the site's stats panel.
@@ -137,7 +155,7 @@ function rewardsLoader(limit) {
   return rewardsCaches.get(limit);
 }
 
-// GET /api/rewards — the ROBBIE payout ledger, newest first, plus the clock.
+// GET /api/rewards — the BUN payout ledger, newest first, plus the clock.
 // ?limit= is optional; the site sends none and gets FEED_LIMIT.
 router.get('/rewards', async (req, res, next) => {
   try {
@@ -148,6 +166,7 @@ router.get('/rewards', async (req, res, next) => {
 });
 
 module.exports = router;
+module.exports.buildStats = buildStats;
 module.exports.isRealTxHash = isRealTxHash;
 module.exports.toRewardRow = toRewardRow;
 module.exports.parseLimit = parseLimit;

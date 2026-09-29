@@ -8,12 +8,12 @@ const { encodeExactInSingle, V4_SWAP } = require('./v4router');
 const { buildPoolKey, NATIVE } = require('./pool');
 const { EXACT_IN_SINGLE_TYPE } = require('./abi');
 
-const ROBBIE = '0xe0eba1B76b73BE7bfA7716b6Ca96f724930e2263';
+const BUN = '0x07EBB29a38Fbcb41563817e5E19f2ceC619C90D2';
 const HOOK = '0xE5e702641Ea86F4ae6cC3cDaeD2B886f976Be044';
 const coder = AbiCoder.defaultAbiCoder();
 
 function key() {
-  return buildPoolKey({ token: ROBBIE, quoteToken: NATIVE, fee: 0, tickSpacing: 200, hooks: HOOK });
+  return buildPoolKey({ token: BUN, quoteToken: NATIVE, fee: 0, tickSpacing: 200, hooks: HOOK });
 }
 
 test('commands is the single V4_SWAP byte', () => {
@@ -50,7 +50,7 @@ test('settles the input currency and takes the output currency', () => {
   const [takeCurrency, takeAmount] = coder.decode(['address', 'uint256'], params[2]);
   assert.strictEqual(settleCurrency, NATIVE);          // paying ETH in
   assert.strictEqual(settleAmount, 500n);
-  assert.strictEqual(takeCurrency.toLowerCase(), ROBBIE.toLowerCase()); // taking tokens out
+  assert.strictEqual(takeCurrency.toLowerCase(), BUN.toLowerCase()); // taking tokens out
   assert.strictEqual(takeAmount, 7n);
 });
 
@@ -58,5 +58,5 @@ test('reversing the direction swaps which currency is settled', () => {
   const { inputs } = encodeExactInSingle({ poolKey: key(), zeroForOne: false, amountIn: 5n, amountOutMinimum: 1n });
   const [, params] = coder.decode(['bytes', 'bytes[]'], inputs[0]);
   const [settleCurrency] = coder.decode(['address', 'uint256'], params[1]);
-  assert.strictEqual(settleCurrency.toLowerCase(), ROBBIE.toLowerCase());
+  assert.strictEqual(settleCurrency.toLowerCase(), BUN.toLowerCase());
 });

@@ -1,5 +1,5 @@
 'use strict';
-// Buy BABY ROBBIE with native ETH, on whichever venue it currently trades on
+// Buy BABYBUNDLECAT with native ETH, on whichever venue it currently trades on
 // (the bonding curve pre-graduation, the Uniswap v4 pool after).
 //   node scripts/buy.js <ethAmount> [--confirm]
 const { config, hr, arg, requireConfirm } = require('./_util');
@@ -13,7 +13,7 @@ const { buyToken } = require('../src/evm/buy');
     console.log('usage: node scripts/buy.js <ethAmount> [--confirm]');
     process.exit(1);
   }
-  if (!config.tokenAddress) throw new Error('TOKEN_ADDRESS (BABY ROBBIE) is required');
+  if (!config.tokenAddress) throw new Error('TOKEN_ADDRESS (BABYBUNDLECAT) is required');
 
   const launch = await getLaunch();
   console.log('token      :', config.tokenAddress);

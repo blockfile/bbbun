@@ -63,7 +63,7 @@ test('clustered wallets are capped as one entity, then split by internal balance
 // ── I2: a tiny REWARD_CAP_PCT must still produce a cap, not silence ─────────
 // The old maths was supply * round(capPct * 100) / 10000, so every capPct below
 // 0.005 rounded to a ZERO cap: every weight clamped to 0, totalWeight hit 0,
-// and the function returned [] — the step recorded 'ok' and the ROBBIE just
+// and the function returned [] — the step recorded 'ok' and the BUN just
 // bought was stranded with no error anywhere.
 test('a sub-0.005 REWARD_CAP_PCT still allocates, and still caps', () => {
   const holders = [{ owner: 'WHALE', balanceRaw: '500000' }, { owner: 'SMALL', balanceRaw: '5' }];

@@ -8,36 +8,36 @@ const { MongoMemoryServer } = require('mongodb-memory-server');
 test('addAirdrop + getAirdrops + getAirdropTotals round-trip', async () => {
   const mongod = await MongoMemoryServer.create();
   process.env.MONGODB_URI = mongod.getUri();
-  process.env.MONGODB_DB = 'babyrobbie_test_airdrops';
+  process.env.MONGODB_DB = 'bbbun_test_airdrops';
   const db = require('./index');
   const repo = require('./repository');
   await db.connect();
   try {
     await repo.addAirdrop({ cycleId: 1, rewardToken: 'OTHER', recipient: 'A', amountRaw: '10', amountUi: 1, signature: 's1', status: 'ok' });
-    await repo.addAirdrop({ cycleId: 1, rewardToken: 'ROBBIE', recipient: 'B', amountRaw: '20', amountUi: 2, signature: 's2', status: 'ok' });
-    await repo.addAirdrop({ cycleId: 1, rewardToken: 'ROBBIE', recipient: 'C', amountRaw: '30', amountUi: 3, signature: 's3', status: 'ok' });
-    await repo.addAirdrop({ cycleId: 1, rewardToken: 'ROBBIE', recipient: 'D', amountRaw: '40', amountUi: 4, signature: null, status: 'failed' });
+    await repo.addAirdrop({ cycleId: 1, rewardToken: 'BUN', recipient: 'B', amountRaw: '20', amountUi: 2, signature: 's2', status: 'ok' });
+    await repo.addAirdrop({ cycleId: 1, rewardToken: 'BUN', recipient: 'C', amountRaw: '30', amountUi: 3, signature: 's3', status: 'ok' });
+    await repo.addAirdrop({ cycleId: 1, rewardToken: 'BUN', recipient: 'D', amountRaw: '40', amountUi: 4, signature: null, status: 'failed' });
 
     // Round-trip: all rows, newest first.
     const all = await repo.getAirdrops(10, 0);
     assert.strictEqual(all.total, 4);
     assert.strictEqual(all.items[0].recipient, 'D'); // newest first
     assert.strictEqual(all.items[3].recipient, 'A');
-    assert.strictEqual(all.items[1].reward_token, 'ROBBIE');
+    assert.strictEqual(all.items[1].reward_token, 'BUN');
 
-    // reward_token filter — powers GET /api/airdrops?token=ROBBIE.
-    const robbie = await repo.getAirdrops(10, 0, 'ROBBIE');
-    assert.strictEqual(robbie.total, 3);
-    assert.ok(robbie.items.every((i) => i.reward_token === 'ROBBIE'));
+    // reward_token filter — powers GET /api/airdrops?token=BUN.
+    const bun = await repo.getAirdrops(10, 0, 'BUN');
+    assert.strictEqual(bun.total, 3);
+    assert.ok(bun.items.every((i) => i.reward_token === 'BUN'));
 
     const none = await repo.getAirdrops(10, 0, '__none__'); // unknown token -> empty
     assert.strictEqual(none.total, 0);
 
     // Totals count only successful sends (the failed 'D' is excluded).
     const totals = await repo.getAirdropTotals();
-    assert.strictEqual(totals.ROBBIE.sends, 2);
-    assert.strictEqual(totals.ROBBIE.holders, 2);
-    assert.strictEqual(totals.ROBBIE.totalUi, 5); // 2 + 3
+    assert.strictEqual(totals.BUN.sends, 2);
+    assert.strictEqual(totals.BUN.holders, 2);
+    assert.strictEqual(totals.BUN.totalUi, 5); // 2 + 3
     assert.strictEqual(totals.OTHER.sends, 1);
   } finally {
     await db.close();

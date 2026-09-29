@@ -18,7 +18,8 @@ const { MongoMemoryServer } = require('mongodb-memory-server');
 process.env.DRY_RUN = 'true';
 process.env.RPC_URL = 'http://127.0.0.1:1'; // nothing listens here, by design
 process.env.TOKEN_ADDRESS = '0x00000000000000000000000000000000000a1b69';
-process.env.REWARD_BUY_PCT = '80';
+process.env.REWARD_BUY_PCT = '70';
+process.env.BURN_PCT = '20';
 process.env.REWARD_CAP_PCT = '2'; // forces the supply read (M1)
 process.env.MIN_HOLD = '100000';
 process.env.DRY_RUN_FEE_PER_POLL = '0'; // the simulated vault is set per test
@@ -49,7 +50,7 @@ before(async () => {
   // config was already frozen in place by the requires above, so point it at
   // the in-memory server here rather than through the environment.
   config.mongoUri = mongod.getUri();
-  config.mongoDb = 'babyrobbie_test_cycle';
+  config.mongoDb = 'bbbun_test_cycle';
   await db.connect();
 });
 
@@ -67,11 +68,18 @@ test('a full DRY_RUN cycle completes without one live chain call', async () => {
   assert.strictEqual(cycle.status, 'complete', cycle.error || '');
   assert.ok(!/ECONNREFUSED|fetch|network/i.test(String(cycle.error || '')), 'no chain call may escape DRY_RUN');
   assert.ok(Math.abs(cycle.eth_claimed - 0.01) < 1e-12);
-  assert.ok(Math.abs(cycle.eth_spent_buy - 0.008) < 1e-12); // 80%
+  assert.ok(Math.abs(cycle.eth_spent_buy - 0.007) < 1e-12, `reward leg: ${cycle.eth_spent_buy}`); // 70%
+  assert.ok(Math.abs(cycle.eth_spent_burn - 0.002) < 1e-12, `burn leg: ${cycle.eth_spent_burn}`); // 20%
   assert.ok(cycle.tokens_bought > 0);
 
   const names = cycle.steps.map((s) => s.name);
-  assert.deepStrictEqual(names, ['sweep', 'claim', 'buy', 'airdrop']);
+  // 'burn' runs last: BBC is bought and sent to 0x…dEaD only after holders are paid.
+  assert.deepStrictEqual(names, ['sweep', 'claim', 'buy', 'airdrop', 'burn']);
+  const burn = cycle.steps.find((s) => s.name === 'burn');
+  assert.strictEqual(burn.status, 'ok');
+  assert.ok(burn.detail.tokensBurned > 0, 'the burn leg bought and burned BBC');
+  assert.strictEqual(burn.detail.deadAddress, '0x000000000000000000000000000000000000dead');
+  assert.ok(cycle.tokens_burned > 0, 'and the cycle records it');
   assert.strictEqual(cycle.steps.find((s) => s.name === 'airdrop').status, 'ok');
   assert.match(cycle.note, /airdrop sent 2/); // two simulated holders clear MIN_HOLD
 });
@@ -95,7 +103,7 @@ test('a dust claim skips the reward leg cleanly and still completes', async () =
 
 // I1: with DISPERSE_ADDRESS set but no allowance, every batch reverts. The
 // cycle used to record 'complete' anyway, so getStats().failed stayed 0 and the
-// bot kept buying ROBBIE every five minutes while none was ever delivered.
+// bot kept buying BUN every five minutes while none was ever delivered.
 test('an airdrop that delivered nothing FAILS the cycle', async () => {
   simvault.reset(0.01);
   airdropOverride = async ({ allocations }) => ({ sent: 0, failed: allocations.length });

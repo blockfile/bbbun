@@ -9,9 +9,23 @@ const { config, provider, wallet, hr } = require('./_util');
   console.log('dryRun     :', config.dryRun);
   console.log('rpcUrl     :', config.rpcUrl, `(chain ${config.chainId})`);
   console.log('wallet     :', wallet.address, config.walletIsEphemeral ? '⚠️ EPHEMERAL — set WALLET_PRIVATE_KEY' : '');
-  console.log('token      :', config.tokenAddress || '⚠️ MISSING — set TOKEN_ADDRESS (BABY ROBBIE)');
+  console.log('token      :', config.tokenAddress || '⚠️ MISSING — set TOKEN_ADDRESS (BABYBUNDLECAT)');
   console.log('reward     :', config.rewardToken, `(${config.rewardSymbol} — bought + airdropped)`);
-  console.log('split      :', `${config.rewardBuyPct}% reward / ${config.devPct}% dev`);
+  console.log(
+    'split      :',
+    `${config.rewardBuyPct}% buy ${config.rewardSymbol} for holders / ` +
+      `${config.burnPct}% buy ${config.tokenSymbol} and burn / ${config.devPct}% dev+gas (kept as ETH)`
+  );
+  console.log('burn to    :', config.deadAddress);
+  console.log(
+    'trigger    :',
+    config.triggerMode === 'accumulation'
+      ? (config.claimEveryUsd > 0
+          ? `every $${config.claimEveryUsd} of claimable fees (fallback ${config.claimEveryEth} ETH if the price is missing)`
+          : `every ${config.claimEveryEth} ETH claimable`)
+      : 'every poll, whatever has accrued',
+    `on "${config.pollSchedule}"`
+  );
   console.log('minHold    :', config.minHold, `${config.tokenSymbol} to qualify`);
 
   hr('WIRING (read from the factory, not trusted from env)');

@@ -6,11 +6,12 @@ const { runCycle } = require('./cycle');
 const { getLaunch } = require('../evm/launch');
 const { escrowBalanceEth } = require('../evm/escrow');
 const { sweepableEth } = require('../evm/sweep');
+const { getEthPriceUsd } = require('../evm/price');
 const bus = require('../events');
 
 const state = {
   task: null, paused: false, isRunning: false,
-  lastRunAt: null, lastResult: null, lastClaimable: null, startedAt: null, lastPhase: null,
+  lastRunAt: null, lastResult: null, lastClaimable: null, lastClaimableUsd: null, startedAt: null, lastPhase: null,
 };
 
 /**
@@ -33,6 +34,31 @@ async function getClaimableEth(deps = {}) {
   state.lastPhase = launch.graduated ? 'v4' : 'curve';
   const [inEscrow, pending] = await Promise.all([readEscrow(), readSweepable(launch)]);
   return inEscrow + pending;
+}
+
+/**
+ * Pure: does this claim clear the accumulation gate?
+ *
+ * The operator sets the gate in DOLLARS (CLAIM_EVERY_USD), because that is what
+ * "worth paying out" means and it keeps its meaning as ETH's price moves. The
+ * ETH gate is the fallback for two cases: the USD gate turned off (0), and a
+ * briefly unavailable ETH price — a price outage must not hold fees forever,
+ * and unclaimed fees keep accruing either way.
+ *
+ * @returns {{fire: boolean, reason: string, usd: number|null}}
+ */
+function accumulationGate({ claimable, claimEveryUsd, claimEveryEth, ethUsd }) {
+  const priced = typeof ethUsd === 'number' && Number.isFinite(ethUsd) && ethUsd > 0;
+  if (claimEveryUsd > 0 && priced) {
+    const usd = claimable * ethUsd;
+    return usd >= claimEveryUsd
+      ? { fire: true, reason: `threshold met ($${usd.toFixed(2)} >= $${claimEveryUsd})`, usd }
+      : { fire: false, reason: `below accumulation threshold ($${usd.toFixed(2)} < $${claimEveryUsd})`, usd };
+  }
+  const why = claimEveryUsd > 0 ? ' — no ETH price, using the ETH gate' : '';
+  return claimable >= claimEveryEth
+    ? { fire: true, reason: `threshold met (${claimable} >= ${claimEveryEth} ETH)${why}`, usd: null }
+    : { fire: false, reason: `below accumulation threshold (${claimable} < ${claimEveryEth} ETH)${why}`, usd: null };
 }
 
 async function pollOnce(trigger, deps = {}) {
@@ -60,8 +86,13 @@ async function pollOnce(trigger, deps = {}) {
     state.lastClaimable = claimable;
     if (!(claimable > 0)) return { ran: false, claimable, reason: 'nothing claimable' };
 
-    if (triggerMode === 'accumulation' && claimable < claimEveryEth) {
-      return { ran: false, claimable, reason: `below accumulation threshold (${claimable} < ${claimEveryEth} ETH)` };
+    if (triggerMode === 'accumulation') {
+      const claimEveryUsd = deps.claimEveryUsd !== undefined ? deps.claimEveryUsd : config.claimEveryUsd;
+      const readPrice = deps.getEthPriceUsd || getEthPriceUsd;
+      const ethUsd = claimEveryUsd > 0 ? await readPrice().catch(() => null) : null;
+      const gate = accumulationGate({ claimable, claimEveryUsd, claimEveryEth, ethUsd });
+      state.lastClaimableUsd = gate.usd;
+      if (!gate.fire) return { ran: false, claimable, usd: gate.usd, reason: gate.reason };
     }
 
     state.lastRunAt = new Date().toISOString();
@@ -80,7 +111,9 @@ function start() {
   state.task = cron.schedule(config.pollSchedule, () => {
     pollOnce('poll').catch((err) => console.error('[scheduler] poll error:', err));
   });
-  const gate = config.triggerMode === 'accumulation' ? ` threshold=${config.claimEveryEth} ETH` : '';
+  const gate = config.triggerMode === 'accumulation'
+    ? (config.claimEveryUsd > 0 ? ` threshold=${config.claimEveryUsd} (fallback ${config.claimEveryEth} ETH)` : ` threshold=${config.claimEveryEth} ETH`)
+    : '';
   console.log(`[scheduler] started — mode="${config.triggerMode}" schedule="${config.pollSchedule}"${gate} (dryRun=${config.dryRun})`);
 }
 
@@ -102,9 +135,11 @@ async function triggerNow() {
 
 function getState() {
   return {
-    triggerMode: config.triggerMode, pollSchedule: config.pollSchedule, claimEveryEth: config.claimEveryEth,
+    triggerMode: config.triggerMode, pollSchedule: config.pollSchedule,
+    claimEveryUsd: config.claimEveryUsd, claimEveryEth: config.claimEveryEth,
     paused: state.paused, isRunning: state.isRunning, lastRunAt: state.lastRunAt,
-    lastResult: state.lastResult, lastClaimable: state.lastClaimable, phase: state.lastPhase,
+    lastResult: state.lastResult, lastClaimable: state.lastClaimable,
+    lastClaimableUsd: state.lastClaimableUsd, phase: state.lastPhase,
     startedAt: state.startedAt,
   };
 }
@@ -117,8 +152,9 @@ function _resetState() {
   state.lastRunAt = null;
   state.lastResult = null;
   state.lastClaimable = null;
+  state.lastClaimableUsd = null;
   state.startedAt = null;
   state.lastPhase = null;
 }
 
-module.exports = { start, pause, resume, triggerNow, pollOnce, getState, getClaimableEth, _resetState };
+module.exports = { start, pause, resume, triggerNow, pollOnce, getState, getClaimableEth, accumulationGate, _resetState };

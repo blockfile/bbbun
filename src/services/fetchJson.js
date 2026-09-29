@@ -4,8 +4,8 @@
 //
 // The Blockscout explorer (used for holder snapshots) sits behind Cloudflare and
 // intermittently returns 520/5xx/429 — a single blip must not fail a whole cycle
-// (a cycle that already bought ROBBIE, then hits a lone 520 on the holder fetch,
-// would fail the cycle and strand the ROBBIE it just bought). We retry those with
+// (a cycle that already bought BUN, then hits a lone 520 on the holder fetch,
+// would fail the cycle and strand the BUN it just bought). We retry those with
 // backoff; genuinely non-retryable responses (e.g. 404) and network errors past
 // the retry budget still throw.
 
