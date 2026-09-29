@@ -198,20 +198,31 @@ single transaction.
 Deploy a disperser **per project**: it is the recorded sender of every payout,
 so sharing one across your tokens links them on any bubblemap tool.
 
-
+```bash
+cd /var/www/bbbun
+npm i solc --no-save                          # needed once, for this one-off deploy
+node scripts/deploy-disperser-v2.js           # compile only, sends nothing
+node scripts/deploy-disperser-v2.js --confirm # deploys (costs gas)
+```
 
 Then wire it up and approve BUN to it:
 
-
+```bash
+sed -i 's|^DISPERSE_ADDRESS=.*|DISPERSE_ADDRESS=0xYourNewDisperser|' .env
+pm2 restart bbbun --update-env
+npm run approve-disperse -- --confirm         # one-off, unlimited BUN allowance
+npm run approve-disperse                      # re-read: the allowance must NOT be zero
+```
 
 **The approval is not automatic and not optional.** The airdrop path never
-calls  itself — an unattended bot that can hand out allowances is
-one that can be tricked into handing them out. With a  set
+calls `approve()` itself — an unattended bot that can hand out token allowances
+is one that can be tricked into handing them out. With a `DISPERSE_ADDRESS` set
 and no allowance, every batch reverts and nobody is paid.
 
-The wallet that deploys it needs a little ETH for gas. The contract has no
-owner and no admin: it pulls the tokens it is told to pull and pays them out
-in the same transaction.
+The deploying wallet needs a little ETH for gas. The contract has no owner and
+no admin: it pulls the tokens it is told to pull and pays them out in the same
+transaction.
+
 ## Redeploying
 
 ```bash
