@@ -25,6 +25,15 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { ContractFactory, formatEther } = require('ethers');
+
+// This script is what PRODUCES a disperser address, so whatever DISPERSE_ADDRESS
+// holds right now is irrelevant to it — and must not stop it. config refuses an
+// invalid one at startup (a leftover placeholder otherwise surfaces mid-cycle as
+// ethers' "network does not support ENS"), which would lock the operator out of
+// the one command that fixes it. Set before requiring config: dotenv never
+// overwrites a key already present in process.env.
+process.env.DISPERSE_ADDRESS = '';
+
 const config = require('../src/config');
 const { provider, wallet } = require('../src/evm/provider');
 
