@@ -241,9 +241,38 @@ The Express API (`/activity`, `/stats`, `/summary`, `/accrual`, `/countdown`,
 `POST /api/run|pause|resume`) and the scheduler are the shared infra ported
 from `ponsliqui`, the sibling bot for pons **v1** tokens.
 
+### What the site reads
+
+`GET /api/stats` serves the four fields the Baby Bundle Cat site
+(`D:\projects\tokenmeme16`, `src/api/stats.js`) needs, under the names it
+looks for:
+
+| Field | Tile | Note |
+| --- | --- | --- |
+| `market_cap` | Market Cap | USD, from DexScreener; 0 until the token is listed |
+| `holders` | Holders | from the explorer, cached 60s |
+| `bun_rewarded` | Total $BUN Rewarded | BUN **tokens** paid out, not dollars |
+| `babybun_burned` | Total $BABYBUN Burned | tokens sent to `0x…dEaD` |
+
+That parser **throws unless all four are finite numbers** — one missing name
+blanks the whole panel, not a tile — so every field is a number and "nothing
+yet" is a real 0. `frontend.test.js` runs the site's own `normalise()` against
+this payload; keep that copy in step with the site.
+
+The same figures are also served under this API's own names
+(`market_cap_usd`, `total_bun_distributed`, `total_bbc_burned`), plus
+`burned_pct_of_supply` and `eth_spent_burning`.
+
+The site's base URL must include `/api`:
+
+```
+VITE_API_BASE_URL=https://api.babybundlecat.meme/api
+VITE_USE_MOCK=false
+```
+
 ## Design
 
 See
-[`docs/superpowers/specs/2026-08-14-bbbun-design.md`](docs/superpowers/specs/2026-08-14-bbbun-design.md)
+[`docs/superpowers/specs/2026-08-14-babyrobbie-design.md`](docs/superpowers/specs/2026-08-14-babyrobbie-design.md)
 and the plan in
 [`docs/superpowers/plans/`](docs/superpowers/plans/).

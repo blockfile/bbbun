@@ -116,3 +116,52 @@ test('before anything has happened every figure is 0, not null', () => {
   assert.strictEqual(s.total_bbc_burned, 0);
   assert.strictEqual(s.burned_pct_of_supply, 0);
 });
+
+// ── The site's own normalise(), copied verbatim ──────────────────────────────
+//
+// From D:\projects\tokenmeme16, src/api/stats.js. Testing against a MODEL of a
+// site's parser is how a sibling project shipped a broken panel: the real one
+// throws unless all four fields are finite, so ONE missing name blanks the
+// whole panel rather than a single tile. Keep this copy in step with the site.
+
+function siteNum(...candidates) {
+  for (const c of candidates) {
+    if (c === undefined || c === null || c === '') continue;
+    const n = Number(c);
+    if (Number.isFinite(n)) return n;
+  }
+  return NaN;
+}
+
+function siteNormalise(raw) {
+  const stats = {
+    marketCap: siteNum(raw?.marketCap, raw?.market_cap, raw?.mc),
+    holders: siteNum(raw?.holders, raw?.holder_count),
+    bunRewarded: siteNum(raw?.bunRewarded, raw?.bun_rewarded, raw?.totalBunRewarded, raw?.total_bun_rewarded),
+    babybunBurned: siteNum(raw?.babybunBurned, raw?.babybun_burned, raw?.totalBabybunBurned, raw?.total_babybun_burned, raw?.burned),
+  };
+  const missing = Object.keys(stats).filter((k) => !Number.isFinite(stats[k]));
+  if (missing.length) throw new Error(`Stats response was missing ${missing.join(', ')}`);
+  return stats;
+}
+
+const asJson = (o) => JSON.parse(JSON.stringify(o)); // what the browser receives
+
+test("the site's four tiles read straight off /api/stats", () => {
+  const { buildStats } = require('./frontend');
+  const s = siteNormalise(asJson(buildStats({
+    market: { marketCap: 22_000 },
+    reward: { totalUi: 1234.5 },
+    totals: { total_tokens_burned: 10_000_000 },
+    holders: 812,
+  })));
+  assert.deepStrictEqual(s, { marketCap: 22_000, holders: 812, bunRewarded: 1234.5, babybunBurned: 10_000_000 });
+});
+
+test('before launch the panel still renders: zeros, not a thrown error', () => {
+  // Nothing listed, no cycles, no holder count. The site throws on a missing
+  // field, so "nothing yet" has to be a real 0 on every one of the four.
+  const { buildStats } = require('./frontend');
+  const s = siteNormalise(asJson(buildStats({})));
+  assert.deepStrictEqual(s, { marketCap: 0, holders: 0, bunRewarded: 0, babybunBurned: 0 });
+});

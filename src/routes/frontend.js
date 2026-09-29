@@ -14,6 +14,7 @@
 const express = require('express');
 const config = require('../config');
 const { burnedPctOfSupply } = require('../evm/burn');
+const { getHolderCount } = require('../services/holdercount');
 const repo = require('../db/repository');
 const { getMarketData } = require('../services/marketdata');
 const { nextRun } = require('../services/countdown');
@@ -83,25 +84,42 @@ function toRewardRow(row) {
 /**
  * Pure: the headline numbers, in the shape the site reads.
  *
- * Every field is a NUMBER, never null: the site coerces non-finite values to 0
- * anyway, so one way of saying "nothing yet" beats two.
+ * The site (D:\projects\tokenmeme16, src/api/stats.js) wants four fields and
+ * THROWS unless every one of them is a finite number — a missing field blanks
+ * the whole panel, not one tile. It accepts a few spellings each; the short
+ * ones are served here, with the longer names kept beside them so an older
+ * reader of this API keeps working:
+ *
+ *   marketCap      <- market_cap      (USD)
+ *   holders        <- holders         (wallet count)
+ *   bunRewarded    <- bun_rewarded    (BUN TOKENS paid out, not dollars)
+ *   babybunBurned  <- babybun_burned  (BABYBUNDLECAT tokens sent to 0x…dEaD)
+ *
+ * Every value is a NUMBER, never null: before launch they are all honestly 0.
  */
-function buildStats({ market = {}, reward = {}, totals = {} }) {
+function buildStats({ market = {}, reward = {}, totals = {}, holders = null }) {
   const burned = totals.total_tokens_burned ?? 0;
+  const rewarded = reward.totalUi ?? 0;
+  const marketCap = market.marketCap ?? 0;
   return {
-    // 0 until the token is listed on DexScreener.
-    market_cap_usd: market.marketCap ?? 0,
-    total_bun_distributed: reward.totalUi ?? 0,
-    // BABYBUNDLECAT bought with the burn share and sent to 0x…dEaD: out of
-    // circulation for good, though totalSupply itself does not move.
+    // What the site reads.
+    market_cap: marketCap,
+    holders: holders ?? 0,
+    bun_rewarded: rewarded,
+    babybun_burned: burned,
+
+    // The same figures under this API's own names, plus what the burn cost.
+    market_cap_usd: marketCap,
+    total_bun_distributed: rewarded,
     total_bbc_burned: burned,
     burned_pct_of_supply: burnedPctOfSupply(burned, config.tokenTotalSupply) ?? 0,
     eth_spent_burning: totals.total_eth_spent_burn ?? 0,
     updated_at: new Date().toISOString(),
   };
 }
+
 const loadStats = cached(15000, async () => {
-  const [market, reward, totals] = await Promise.all([
+  const [market, reward, totals, holders] = await Promise.all([
     getMarketData().catch(() => ({ marketCap: null })),
     // getDistributedTotal, NOT getAirdropTotals: the latter counts simulated
     // DRY_RUN payouts too (they carry status 'ok'), which would inflate the
@@ -111,8 +129,9 @@ const loadStats = cached(15000, async () => {
     // landed on chain; a failed transfer leaves the tokens in the wallet and is
     // deliberately not counted as burned.
     repo.getStats().catch(() => ({})),
+    getHolderCount().catch(() => null),
   ]);
-  return buildStats({ market, reward, totals });
+  return buildStats({ market, reward, totals, holders });
 });
 
 // GET /api/stats — headline numbers for the site's stats panel.

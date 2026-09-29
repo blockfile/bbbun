@@ -111,7 +111,9 @@ const config = {
   v4Quoter: lowerOr(process.env.V4_QUOTER, '0x5c3db48cfd8352d845fac70009d714f0ce1d7914'),
 
   tokenAddress: lowerOrNull(process.env.TOKEN_ADDRESS),
-  tokenSymbol: process.env.TOKEN_SYMBOL || 'BBC',
+  // The SITE is the authority on the ticker: tokenmeme16 calls it $BABYBUN
+  // (src/config/token.js), so logs and labels say BABYBUN too.
+  tokenSymbol: process.env.TOKEN_SYMBOL || 'BABYBUN',
   rewardToken: lowerOr(process.env.REWARD_TOKEN, '0x07ebb29a38fbcb41563817e5e19f2cec619c90d2'),
   rewardSymbol: process.env.REWARD_SYMBOL || 'BUN',
 
