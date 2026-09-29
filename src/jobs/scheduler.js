@@ -12,14 +12,33 @@ const bus = require('../events');
 const state = {
   task: null, paused: false, isRunning: false,
   lastRunAt: null, lastResult: null, lastClaimable: null, lastClaimableUsd: null, startedAt: null, lastPhase: null,
+  // Post-graduation only pons's operator may sweep; until one succeeds again,
+  // pending fees are reported but not counted as ours to spend.
+  sweepLocked: false, pendingSweepEth: null,
 };
 
 /**
- * What a cycle could realistically collect right now: what is already in the
- * escrow PLUS what a sweep would move into it. Reading the escrow alone
- * deadlocks — before the first sweep it is zero while the fees sit on the
- * curve or the hook, so the bot would never fire and never sweep.
- * @param {object} deps Optional overrides for testing: { dryRun, tokenAddress, escrowBalanceEth, sweepableEth, getLaunch }
+ * Pure: how much of a claim this bot can actually reach right now.
+ *
+ * Normally the escrow PLUS what a sweep would move into it: counting the
+ * escrow alone deadlocks, because before the first sweep it is zero while the
+ * fees sit on the curve or the hook, so the bot would never fire and never
+ * sweep.
+ *
+ * After graduation, though, pons's own operator has to do the sweeping, and
+ * the pending fees are then NOT reachable. Counting them anyway is what made
+ * cycles 19-22 fire every minute, claim 0 and record an empty cycle each time
+ * — it looked like $100 was waiting when nothing was. Once a sweep has been
+ * refused as operator-only, only the escrow counts, until a sweep succeeds
+ * again. The pending amount is still reported, just not as ours to spend.
+ */
+function reachable({ inEscrow, pending, sweepLocked }) {
+  return sweepLocked ? inEscrow : inEscrow + pending;
+}
+
+/**
+ * What a cycle could realistically collect right now.
+ * @param {object} deps Optional overrides for testing: { dryRun, tokenAddress, escrowBalanceEth, sweepableEth, getLaunch, sweepLocked }
  */
 async function getClaimableEth(deps = {}) {
   const dryRun = deps.dryRun !== undefined ? deps.dryRun : config.dryRun;
@@ -27,13 +46,28 @@ async function getClaimableEth(deps = {}) {
   const readSweepable = deps.sweepableEth || sweepableEth;
   const readLaunch = deps.getLaunch || getLaunch;
   const token = deps.tokenAddress !== undefined ? deps.tokenAddress : config.tokenAddress;
+  const sweepLocked = deps.sweepLocked !== undefined ? deps.sweepLocked : state.sweepLocked;
 
   if (dryRun) return readEscrow();
   if (!token) return 0;
   const launch = await readLaunch();
   state.lastPhase = launch.graduated ? 'v4' : 'curve';
   const [inEscrow, pending] = await Promise.all([readEscrow(), readSweepable(launch)]);
-  return inEscrow + pending;
+  state.pendingSweepEth = pending;
+  return reachable({ inEscrow, pending, sweepLocked });
+}
+
+/**
+ * Pure: did this cycle's sweep get refused because only pons may sweep?
+ *
+ * Read off the recorded step rather than a thrown error: the sweep is
+ * best-effort and never throws, so its refusal is only visible here.
+ */
+function sweepWasOperatorLocked(cycle) {
+  const step = (cycle && cycle.steps) ? cycle.steps.find((s) => s.name === 'sweep') : null;
+  if (!step) return null; // no sweep step: nothing learned
+  if (step.status !== 'skipped') return false; // a sweep went through
+  return /operator/i.test(String((step.detail && step.detail.reason) || ''));
 }
 
 /**
@@ -98,6 +132,16 @@ async function pollOnce(trigger, deps = {}) {
     state.lastRunAt = new Date().toISOString();
     const cycle = await cycle_fn();
     state.lastResult = { id: cycle.id, status: cycle.status };
+
+    // What this cycle learned about who may sweep. Only logged on a CHANGE:
+    // the poll runs every minute and this would otherwise repeat forever.
+    const locked = sweepWasOperatorLocked(cycle);
+    if (locked !== null && locked !== state.sweepLocked) {
+      state.sweepLocked = locked;
+      console.log(locked
+        ? `[scheduler] pons's operator must sweep this pool now — only the escrow counts toward the gate (${state.pendingSweepEth ?? '?'} ETH pending on the hook)`
+        : '[scheduler] sweeping works again — pending fees count toward the gate');
+    }
     return { ran: true, claimable, cycle };
   } finally {
     state.isRunning = false;
@@ -140,6 +184,7 @@ function getState() {
     paused: state.paused, isRunning: state.isRunning, lastRunAt: state.lastRunAt,
     lastResult: state.lastResult, lastClaimable: state.lastClaimable,
     lastClaimableUsd: state.lastClaimableUsd, phase: state.lastPhase,
+    sweepLocked: state.sweepLocked, pendingSweepEth: state.pendingSweepEth,
     startedAt: state.startedAt,
   };
 }
@@ -153,8 +198,13 @@ function _resetState() {
   state.lastResult = null;
   state.lastClaimable = null;
   state.lastClaimableUsd = null;
+  state.sweepLocked = false;
+  state.pendingSweepEth = null;
   state.startedAt = null;
   state.lastPhase = null;
 }
 
-module.exports = { start, pause, resume, triggerNow, pollOnce, getState, getClaimableEth, accumulationGate, _resetState };
+module.exports = {
+  start, pause, resume, triggerNow, pollOnce, getState, getClaimableEth,
+  accumulationGate, reachable, sweepWasOperatorLocked, _resetState,
+};

@@ -202,3 +202,53 @@ test('a poll below the dollar gate runs no cycle', async () => {
   assert.strictEqual(ran, 0);
   assert.match(out.reason, /below accumulation threshold \(\$27\.50 < \$100\)/);
 });
+
+// ── After graduation, only pons may sweep ───────────────────────────────────
+//
+// Cycles 19-22 fired every minute, claimed 0 and recorded an empty cycle each
+// time: the gate counted fees pending on the hook that only pons's operator
+// can release. Reachable means reachable BY US.
+
+test('pending fees count toward the gate while we can still sweep them', () => {
+  const { reachable } = require('./scheduler');
+  assert.strictEqual(reachable({ inEscrow: 0.001, pending: 0.004, sweepLocked: false }), 0.005);
+});
+
+test('once a sweep is refused as operator-only, only the escrow counts', () => {
+  const { reachable } = require('./scheduler');
+  assert.strictEqual(reachable({ inEscrow: 0, pending: 0.05, sweepLocked: true }), 0);
+  assert.strictEqual(reachable({ inEscrow: 0.02, pending: 0.05, sweepLocked: true }), 0.02);
+});
+
+test('a refused sweep is recognised from the recorded step, not from a throw', () => {
+  const { sweepWasOperatorLocked } = require('./scheduler');
+  const cycle = (step) => ({ steps: step ? [step] : [] });
+  assert.strictEqual(
+    sweepWasOperatorLocked(cycle({ name: 'sweep', status: 'skipped', detail: { reason: "sweep needs pons's trusted operator — fees stay pending for the next cycle" } })),
+    true
+  );
+  assert.strictEqual(sweepWasOperatorLocked(cycle({ name: 'sweep', status: 'ok', detail: {} })), false);
+  // A skip for any other reason is not the operator lock.
+  assert.strictEqual(sweepWasOperatorLocked(cycle({ name: 'sweep', status: 'skipped', detail: { reason: 'nothing to sweep' } })), false);
+  // No sweep step at all teaches nothing — the flag must stay as it was.
+  assert.strictEqual(sweepWasOperatorLocked(cycle(null)), null);
+  assert.strictEqual(sweepWasOperatorLocked(undefined), null);
+});
+
+test('with the sweep locked and an empty escrow, no cycle runs at all', async () => {
+  const scheduler = require('./scheduler');
+  scheduler._resetState();
+  let ran = 0;
+  const out = await scheduler.pollOnce('test', {
+    dryRun: false,
+    tokenAddress: '0x00000000000000000000000000000000000a1b69',
+    getLaunch: async () => ({ graduated: true, token: '0x00000000000000000000000000000000000a1b69' }),
+    escrowBalanceEth: async () => 0,
+    sweepableEth: async () => 0.05,     // pending on the hook, ours only after pons sweeps
+    sweepLocked: true,
+    runCycle: async () => { ran += 1; return { id: 1, status: 'complete', steps: [] }; },
+  });
+  assert.strictEqual(out.ran, false);
+  assert.strictEqual(out.reason, 'nothing claimable');
+  assert.strictEqual(ran, 0, 'an empty cycle must not be recorded every minute');
+});
