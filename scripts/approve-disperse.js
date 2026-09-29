@@ -34,6 +34,21 @@ const ERC20 = [
     process.exit(0);
   }
 
+  // DRY_RUN=true must touch nothing. Every OTHER script can rehearse because
+  // the modules they use (escrow, sweep, buy, airdrop) simulate internally —
+  // this one talks to the token contract directly, so with --confirm it used to
+  // print "[DRY_RUN] simulating" and then send a real approval anyway.
+  //
+  // Checked before any chain read, so the refusal costs nothing and needs no RPC.
+  if (config.dryRun) {
+    console.log('DRY_RUN=true — nothing sent.');
+    console.log('\nAn approval is a real transaction; there is no simulated version of it.');
+    console.log('It is also a prerequisite for going live, so send it deliberately:\n');
+    console.log('    DRY_RUN=false npm run approve-disperse -- --confirm\n');
+    console.log('That leaves DRY_RUN=true in .env: the shell value wins for this one command.');
+    process.exit(0);
+  }
+
   const token = new Contract(config.rewardToken, ERC20, wallet);
   const decimals = await token.decimals();
 
