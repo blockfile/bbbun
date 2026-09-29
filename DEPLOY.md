@@ -189,6 +189,29 @@ API_KEY=$(grep '^API_KEY=' .env | cut -d= -f2-)
 curl -s -X POST -H "x-api-key: $API_KEY" http://127.0.0.1:3000/api/run | head -c 400
 ```
 
+## Your own disperser (do this before the holder count grows)
+
+Without one, an airdrop sends one transfer per holder. That is fine at a few
+hundred holders and slow-then-expensive beyond it. With one, a batch is a
+single transaction.
+
+Deploy a disperser **per project**: it is the recorded sender of every payout,
+so sharing one across your tokens links them on any bubblemap tool.
+
+
+
+Then wire it up and approve BUN to it:
+
+
+
+**The approval is not automatic and not optional.** The airdrop path never
+calls  itself — an unattended bot that can hand out allowances is
+one that can be tricked into handing them out. With a  set
+and no allowance, every batch reverts and nobody is paid.
+
+The wallet that deploys it needs a little ETH for gas. The contract has no
+owner and no admin: it pulls the tokens it is told to pull and pays them out
+in the same transaction.
 ## Redeploying
 
 ```bash
