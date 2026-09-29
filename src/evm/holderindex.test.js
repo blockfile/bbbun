@@ -162,3 +162,17 @@ test('an unset start block is refused, not guessed', async () => {
     /HOLDER_INDEX_FROM_BLOCK/,
   );
 });
+
+// ── The repository contract this module depends on ──────────────────────────
+//
+// buildHolderIndex reads and writes the stored index through the repository.
+// Both functions existed but were never added to module.exports, so live
+// cycles logged "chain index unusable (repo.getHolderIndex is not a function)"
+// and fell straight back to the explorer — the 403 this index exists to avoid.
+// Nothing else would have caught it: every test here injects its own repo.
+
+test('the repository actually exports what the holder index calls', () => {
+  const repo = require('../db/repository');
+  assert.strictEqual(typeof repo.getHolderIndex, 'function');
+  assert.strictEqual(typeof repo.setHolderIndex, 'function');
+});

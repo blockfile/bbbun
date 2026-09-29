@@ -14,9 +14,12 @@
     "claim": "node scripts/claim.js",
     "buy": "node scripts/buy.js",
     "approve-disperse": "node scripts/approve-disperse.js",
-    "run-once": "node scripts/run-once.js"
+    "run-once": "node scripts/run-once.js",
+    "recover-airdrop": "node scripts/recover-airdrop.js"
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
@@ -25,5 +28,7 @@
     "mongodb": "^6.12.0",
     "node-cron": "^3.0.3"
   },
-  "devDependencies": { "mongodb-memory-server": "^10.1.4" }
+  "devDependencies": {
+    "mongodb-memory-server": "^10.1.4"
+  }
 }

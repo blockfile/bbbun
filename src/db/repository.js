@@ -285,4 +285,6 @@ module.exports = {
   getAirdrops,
   getAirdropTotals,
   getDistributedTotal,
+  getHolderIndex,
+  setHolderIndex,
 };

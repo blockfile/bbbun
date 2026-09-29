@@ -99,6 +99,37 @@ function summarizeReward(reward) {
   return { status: 'complete', note: `airdrop sent ${reward.sent}` };
 }
 
+/**
+ * Hand `tokensRaw` of the reward token to holders, pro-rata.
+ *
+ * Separate from the buy so a rescue can reuse it: a cycle that dies between
+ * the buy and the airdrop leaves bought BUN in the wallet that no later cycle
+ * will ever touch, because each cycle only distributes what IT bought. See
+ * scripts/recover-airdrop.js.
+ *
+ * @param {{launch: object, tokensRaw: string|bigint, label?: string}} opts
+ */
+async function distributeReward(cycleId, { launch, tokensRaw, label = 'reward' }) {
+  const log = (m) => console.log(`[cycle ${cycleId}] [${label}] ${m}`);
+
+  const minHoldRaw = (BigInt(Math.trunc(config.minHold)) * 10n ** 18n).toString();
+  const exclude = await buildExcludeSet(launch);
+  const { holders, totalHolders } = await snapshotEligibleHolders({ token: launch.token, minHoldRaw, exclude });
+  log(`${holders.length} eligible holders (>= ${config.minHold}) of ${totalHolders} total`);
+
+  const capPct = config.rewardCapPct > 0 ? config.rewardCapPct : null;
+  const supplyRaw = capPct == null ? null : (await getTokenSupplyRaw(launch.token)).toString();
+  const allocations = computeWeightedAllocations(holders, String(tokensRaw || '0'), { capPct, supplyRaw, clusters: config.clusters });
+  const air = await airdropToken({ rewardToken: config.rewardToken, allocations, cycleId });
+  await repo.addStep({
+    cycleId, name: 'airdrop', status: air.failed ? 'failed' : 'ok',
+    detail: { token: config.rewardToken, recipients: allocations.length, sent: air.sent, failed: air.failed },
+  });
+  log(`airdrop ${config.rewardSymbol} sent=${air.sent} failed=${air.failed}`);
+
+  return { recipients: allocations.length, sent: air.sent, failed: air.failed, eligibleHolders: holders.length, totalHolders };
+}
+
 /** Buy the reward token and airdrop it pro-rata to holders of the fee token. */
 async function runRewardLeg(cycleId, { launch, rewardLaunch, ethAmount }) {
   const log = (m) => console.log(`[cycle ${cycleId}] [reward] ${m}`);
@@ -110,29 +141,8 @@ async function runRewardLeg(cycleId, { launch, rewardLaunch, ethAmount }) {
   });
   log(`bought ${buy.tokensBought} ${config.rewardSymbol} with ${ethAmount} ETH`);
 
-  const minHoldRaw = (BigInt(Math.trunc(config.minHold)) * 10n ** 18n).toString();
-  const exclude = await buildExcludeSet(launch);
-  const { holders, totalHolders } = await snapshotEligibleHolders({ token: launch.token, minHoldRaw, exclude });
-  log(`${holders.length} eligible holders (>= ${config.minHold}) of ${totalHolders} total`);
-
-  const capPct = config.rewardCapPct > 0 ? config.rewardCapPct : null;
-  const supplyRaw = capPct == null ? null : (await getTokenSupplyRaw(launch.token)).toString();
-  const allocations = computeWeightedAllocations(holders, buy.tokensBoughtRaw || '0', { capPct, supplyRaw, clusters: config.clusters });
-  const air = await airdropToken({ rewardToken: config.rewardToken, allocations, cycleId });
-  await repo.addStep({
-    cycleId, name: 'airdrop', status: air.failed ? 'failed' : 'ok',
-    detail: { token: config.rewardToken, recipients: allocations.length, sent: air.sent, failed: air.failed },
-  });
-  log(`airdrop ${config.rewardSymbol} sent=${air.sent} failed=${air.failed}`);
-
-  return {
-    tokensBought: buy.tokensBought,
-    recipients: allocations.length,
-    sent: air.sent,
-    failed: air.failed,
-    eligibleHolders: holders.length,
-    totalHolders,
-  };
+  const out = await distributeReward(cycleId, { launch, tokensRaw: buy.tokensBoughtRaw || '0' });
+  return { tokensBought: buy.tokensBought, ...out };
 }
 
 async function runCycle() {
@@ -274,4 +284,5 @@ module.exports = {
   isFeeRecipientOk,
   feeRecipientWarning,
   getFeeRecipientCheck,
+  distributeReward,
 };
