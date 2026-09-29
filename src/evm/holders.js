@@ -8,6 +8,7 @@
 const config = require('../config');
 const { wallet } = require('./provider');
 const { fetchJson } = require('../services/fetchJson');
+const { buildHolderIndex } = require('./holderindex');
 
 // Pure: collapse token holdings to per-owner balances, drop excluded owners and
 // balances below `minHoldRaw`. `accounts`: [{ owner, amountRaw }]. `excludeSet`:
@@ -64,6 +65,39 @@ async function fetchAllHolders(token) {
 }
 
 /**
+ * Every holder and balance: from the chain index when one is configured and
+ * healthy, otherwise from the explorer.
+ *
+ * The index exists because the explorer is not dependable enough to pay people
+ * with: on 2026-09-30 a live cycle bought 122.69 BUN and then died on
+ * "holders fetch failed (403)" — Blockscout behind Cloudflare refusing the
+ * listing. The index is also CHECKABLE, which no explorer answer is: its
+ * balances must sum to totalSupply() or it refuses itself.
+ *
+ * It is not allowed to become a new way to fail. If it cannot vouch for its
+ * answer it throws, and this falls back to the explorer — slower, but no worse
+ * than what came before.
+ */
+async function listAccounts(token, deps = {}) {
+  const indexed = deps.buildHolderIndex || buildHolderIndex;
+  const paged = deps.fetchAllHolders || fetchAllHolders;
+  const fromBlock =
+    deps.holderIndexFromBlock !== undefined ? deps.holderIndexFromBlock : config.holderIndexFromBlock;
+
+  if (fromBlock > 0) {
+    try {
+      const { holders, indexedEvents } = await indexed({ token });
+      console.log(`[holders] indexed from the chain: ${holders.length} holders (+${indexedEvents} new transfers)`);
+      // The explorer's shape, so filterEligible and countOwners are untouched.
+      return holders.map((h) => ({ owner: h.owner, amountRaw: h.balanceRaw }));
+    } catch (err) {
+      console.warn(`[holders] chain index unusable (${err.message}) — falling back to the explorer`);
+    }
+  }
+  return paged(token);
+}
+
+/**
  * Snapshot the eligible holders of `token`.
  * @param {{token: string, minHoldRaw: string|bigint, exclude: Set<string>|string[]}} opts
  * @returns {Promise<{holders: {owner:string, balanceRaw:string}[], totalHolders: number}>}
@@ -82,8 +116,8 @@ async function snapshotEligibleHolders({ token, minHoldRaw, exclude }) {
     return { holders: filterEligible(sim, minHoldRaw, excludeSet), totalHolders: countOwners(sim) };
   }
 
-  const accounts = await fetchAllHolders(token);
+  const accounts = await listAccounts(token);
   return { holders: filterEligible(accounts, minHoldRaw, excludeSet), totalHolders: countOwners(accounts) };
 }
 
-module.exports = { filterEligible, countOwners, fetchAllHolders, snapshotEligibleHolders };
+module.exports = { filterEligible, countOwners, fetchAllHolders, listAccounts, snapshotEligibleHolders };

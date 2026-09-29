@@ -129,6 +129,15 @@ const config = {
   gasReserveEth: num(process.env.GAS_RESERVE_ETH, 0.005),
   deadAddress: lowerOr(process.env.DEAD_ADDRESS, '0x000000000000000000000000000000000000dead'),
 
+  // The block BABYBUN was deployed in. The holder index folds Transfer events
+  // from here forward, so starting later misses the mint and the index refuses
+  // itself (its balances would not sum to totalSupply). 0 = index off, use the
+  // explorer. Find it with: node scripts/find-deploy-block.js <token>
+  holderIndexFromBlock: num(process.env.HOLDER_INDEX_FROM_BLOCK, 0),
+  // getLogs window. Public RPCs cap the range; 9k fits the strictest one met
+  // so far. Raise it if your provider is generous — fewer round trips.
+  holderIndexChunk: num(process.env.HOLDER_INDEX_CHUNK, 9_000),
+
   // What was MINTED, for the burned-share figure. A dead-address burn leaves
   // totalSupply untouched, so this is the denominator; pons v2 launches mint 1B.
   tokenTotalSupply: num(process.env.TOKEN_TOTAL_SUPPLY, 1_000_000_000),
